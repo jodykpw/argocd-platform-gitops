@@ -1,0 +1,361 @@
+# AppProjects for the tenants (applied by the platform team only: tenants must never get the `projects` permission).
+# Two per tenant: <tenant>-nonprod (dev and stg: owners and developers create and sync applications) and
+# <tenant>-prod (production, destination <tenant>-prod only: owners and developers create and sync). Applications are self-service: tenants create them in
+# the Argo CD UI or CLI inside their project; the project decides what they may deploy and where.
+# Repositories and tokens are project-scoped: added by the tenant under Settings > Repositories, usable only by
+# applications of that project. Design, decisions and tests: docs/tenant-gitops.md, tests/tenant-gitops.sh.
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: zeedlogic-nonprod
+  namespace: argocd
+  labels: {app.kubernetes.io/part-of: tenant-gitops, tenant: zeedlogic}
+spec:
+  description: zeedlogic dev and stg
+  sourceRepos:
+    # The tenant's GitLab group (top-level group `<tenant>` with subgroups below it, decided; outside servers/pcls.jodywan.com/).
+    # `**` matches any depth: Argo CD treats `/` as a separator, so a single `*` would match only `<group>/<repo>` and not
+    # `<group>/<subgroup>/<repo>`. Any repo in the group may be deployed from and nothing outside it. Platform repos are not listed on purpose.
+    - https://gitlab.jodywan.com/zeedlogic/**
+    # The tenant's Harbor project, for released Helm charts (OCI, no scheme; the Application adds the chart name separately, so
+    # its repoURL is exactly this). One project, not a wildcard: Harbor also holds other teams' projects.
+    - harbor.jodywan.com/zeedlogic
+  destinations:
+    - {server: https://kubernetes.default.svc, namespace: zeedlogic-dev}
+    - {server: https://kubernetes.default.svc, namespace: zeedlogic-stg}
+  clusterResourceWhitelist: []        # no cluster-scoped kinds
+  # Allowlist of namespaced kinds a tenant may deploy from Git. Everything else (ResourceQuota, LimitRange,
+  # NetworkPolicy, ...) stays with Capsule, the owners' kubectl and the platform team.
+  # Role and RoleBinding are deliberately NOT here: tenant owners manage RBAC with kubectl or
+  # helm, never through Argo CD. The deployer account is only `edit`, so Kubernetes refuses them as well.
+  namespaceResourceWhitelist:
+    - {group: apps, kind: Deployment}
+    - {group: apps, kind: StatefulSet}
+    - {group: argoproj.io, kind: Rollout}     # progressive delivery (docs/argo-rollouts.md); no analysis, no traffic routing
+    - {group: external-secrets.io, kind: SecretStore}      # own GitLab project only (docs/external-secrets.md); no ClusterSecretStore
+    - {group: external-secrets.io, kind: ExternalSecret}   # own SecretStore only; the token Secret is made by hand, never in Git
+    - {group: batch, kind: Job}
+    - {group: batch, kind: CronJob}
+    - {group: autoscaling, kind: HorizontalPodAutoscaler}
+    - {group: policy, kind: PodDisruptionBudget}
+    - {group: "", kind: Service}
+    - {group: "", kind: ConfigMap}
+    - {group: "", kind: Secret}
+    - {group: "", kind: ServiceAccount}
+    - {group: "", kind: PersistentVolumeClaim}
+    - {group: networking.k8s.io, kind: Ingress}   # class traefik; HTTPRoute is not usable by tenants (no RBAC, Gateway accepts platform namespaces only)
+  # Sync impersonation (needs application.sync.impersonation.enabled in argocd-cm): applications of this project
+  # are applied as the tenant's own deployer account, which can only act in this tenant's namespaces.
+  destinationServiceAccounts:
+    - server: https://kubernetes.default.svc
+      namespace: 'zeedlogic-*'
+      defaultServiceAccount: argocd:argocd-deployer-zeedlogic
+  roles:
+    - name: owner
+      description: Tenant owners. Create, edit, delete and sync applications; add repositories and tokens; logs and exec.
+      groups: [zeedlogic-owners]
+      policies:
+        - p, proj:zeedlogic-nonprod:owner, projects, get, zeedlogic-nonprod, allow
+        - p, proj:zeedlogic-nonprod:owner, applications, get, zeedlogic-nonprod/*, allow
+        - p, proj:zeedlogic-nonprod:owner, applications, create, zeedlogic-nonprod/*, allow
+        - p, proj:zeedlogic-nonprod:owner, applications, update, zeedlogic-nonprod/*, allow
+        - p, proj:zeedlogic-nonprod:owner, applications, delete, zeedlogic-nonprod/*, allow
+        - p, proj:zeedlogic-nonprod:owner, applications, sync, zeedlogic-nonprod/*, allow
+        - p, proj:zeedlogic-nonprod:owner, applications, override, zeedlogic-nonprod/*, allow
+        - p, proj:zeedlogic-nonprod:owner, applications, action/*, zeedlogic-nonprod/*, allow
+        - p, proj:zeedlogic-nonprod:owner, repositories, get, zeedlogic-nonprod/*, allow
+        - p, proj:zeedlogic-nonprod:owner, repositories, create, zeedlogic-nonprod/*, allow
+        - p, proj:zeedlogic-nonprod:owner, repositories, update, zeedlogic-nonprod/*, allow
+        - p, proj:zeedlogic-nonprod:owner, repositories, delete, zeedlogic-nonprod/*, allow
+        - p, proj:zeedlogic-nonprod:owner, logs, get, zeedlogic-nonprod/*, allow
+        - p, proj:zeedlogic-nonprod:owner, exec, create, zeedlogic-nonprod/*, allow
+    - name: developer
+      description: Developers. Create, edit and sync applications and add repositories in dev and stg only.
+      groups: [zeedlogic-developers]
+      policies:
+        - p, proj:zeedlogic-nonprod:developer, projects, get, zeedlogic-nonprod, allow
+        - p, proj:zeedlogic-nonprod:developer, applications, get, zeedlogic-nonprod/*, allow
+        - p, proj:zeedlogic-nonprod:developer, applications, create, zeedlogic-nonprod/*, allow
+        - p, proj:zeedlogic-nonprod:developer, applications, update, zeedlogic-nonprod/*, allow
+        - p, proj:zeedlogic-nonprod:developer, applications, delete, zeedlogic-nonprod/*, allow
+        - p, proj:zeedlogic-nonprod:developer, applications, sync, zeedlogic-nonprod/*, allow
+        - p, proj:zeedlogic-nonprod:developer, applications, action/*, zeedlogic-nonprod/*, allow
+        - p, proj:zeedlogic-nonprod:developer, repositories, get, zeedlogic-nonprod/*, allow
+        - p, proj:zeedlogic-nonprod:developer, repositories, create, zeedlogic-nonprod/*, allow
+        - p, proj:zeedlogic-nonprod:developer, repositories, update, zeedlogic-nonprod/*, allow
+        - p, proj:zeedlogic-nonprod:developer, repositories, delete, zeedlogic-nonprod/*, allow
+        - p, proj:zeedlogic-nonprod:developer, logs, get, zeedlogic-nonprod/*, allow
+        - p, proj:zeedlogic-nonprod:developer, exec, create, zeedlogic-nonprod/*, allow
+    - name: viewer
+      description: Read only.
+      groups: [zeedlogic-viewers]
+      policies:
+        - p, proj:zeedlogic-nonprod:viewer, projects, get, zeedlogic-nonprod, allow
+        - p, proj:zeedlogic-nonprod:viewer, applications, get, zeedlogic-nonprod/*, allow
+        - p, proj:zeedlogic-nonprod:viewer, repositories, get, zeedlogic-nonprod/*, allow
+        - p, proj:zeedlogic-nonprod:viewer, logs, get, zeedlogic-nonprod/*, allow
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: zeedlogic-prod
+  namespace: argocd
+  labels: {app.kubernetes.io/part-of: tenant-gitops, tenant: zeedlogic}
+spec:
+  description: zeedlogic production
+  sourceRepos:
+    # The tenant's GitLab group (top-level group `<tenant>` with subgroups below it, decided; outside servers/pcls.jodywan.com/).
+    # `**` matches any depth: Argo CD treats `/` as a separator, so a single `*` would match only `<group>/<repo>` and not
+    # `<group>/<subgroup>/<repo>`. Any repo in the group may be deployed from and nothing outside it. Platform repos are not listed on purpose.
+    - https://gitlab.jodywan.com/zeedlogic/**
+    # The tenant's Harbor project, for released Helm charts (OCI, no scheme; the Application adds the chart name separately, so
+    # its repoURL is exactly this). One project, not a wildcard: Harbor also holds other teams' projects.
+    - harbor.jodywan.com/zeedlogic
+  destinations:
+    - {server: https://kubernetes.default.svc, namespace: zeedlogic-prod}
+  clusterResourceWhitelist: []        # no cluster-scoped kinds
+  # Allowlist of namespaced kinds a tenant may deploy from Git. Everything else (ResourceQuota, LimitRange,
+  # NetworkPolicy, ...) stays with Capsule, the owners' kubectl and the platform team.
+  # Role and RoleBinding are deliberately NOT here: tenant owners manage RBAC with kubectl or
+  # helm, never through Argo CD. The deployer account is only `edit`, so Kubernetes refuses them as well.
+  namespaceResourceWhitelist:
+    - {group: apps, kind: Deployment}
+    - {group: apps, kind: StatefulSet}
+    - {group: argoproj.io, kind: Rollout}     # progressive delivery (docs/argo-rollouts.md); no analysis, no traffic routing
+    - {group: external-secrets.io, kind: SecretStore}      # own GitLab project only (docs/external-secrets.md); no ClusterSecretStore
+    - {group: external-secrets.io, kind: ExternalSecret}   # own SecretStore only; the token Secret is made by hand, never in Git
+    - {group: batch, kind: Job}
+    - {group: batch, kind: CronJob}
+    - {group: autoscaling, kind: HorizontalPodAutoscaler}
+    - {group: policy, kind: PodDisruptionBudget}
+    - {group: "", kind: Service}
+    - {group: "", kind: ConfigMap}
+    - {group: "", kind: Secret}
+    - {group: "", kind: ServiceAccount}
+    - {group: "", kind: PersistentVolumeClaim}
+    - {group: networking.k8s.io, kind: Ingress}   # class traefik; HTTPRoute is not usable by tenants (no RBAC, Gateway accepts platform namespaces only)
+  # Sync impersonation (needs application.sync.impersonation.enabled in argocd-cm): applications of this project
+  # are applied as the tenant's own deployer account, which can only act in this tenant's namespaces.
+  destinationServiceAccounts:
+    - server: https://kubernetes.default.svc
+      namespace: 'zeedlogic-*'
+      defaultServiceAccount: argocd:argocd-deployer-zeedlogic
+  roles:
+    - name: owner
+      description: Tenant owners. Only owners create, change and sync production applications.
+      groups: [zeedlogic-owners]
+      policies:
+        - p, proj:zeedlogic-prod:owner, projects, get, zeedlogic-prod, allow
+        - p, proj:zeedlogic-prod:owner, applications, get, zeedlogic-prod/*, allow
+        - p, proj:zeedlogic-prod:owner, applications, create, zeedlogic-prod/*, allow
+        - p, proj:zeedlogic-prod:owner, applications, update, zeedlogic-prod/*, allow
+        - p, proj:zeedlogic-prod:owner, applications, delete, zeedlogic-prod/*, allow
+        - p, proj:zeedlogic-prod:owner, applications, sync, zeedlogic-prod/*, allow
+        - p, proj:zeedlogic-prod:owner, applications, override, zeedlogic-prod/*, allow
+        - p, proj:zeedlogic-prod:owner, applications, action/*, zeedlogic-prod/*, allow
+        - p, proj:zeedlogic-prod:owner, repositories, get, zeedlogic-prod/*, allow
+        - p, proj:zeedlogic-prod:owner, repositories, create, zeedlogic-prod/*, allow
+        - p, proj:zeedlogic-prod:owner, repositories, update, zeedlogic-prod/*, allow
+        - p, proj:zeedlogic-prod:owner, repositories, delete, zeedlogic-prod/*, allow
+        - p, proj:zeedlogic-prod:owner, logs, get, zeedlogic-prod/*, allow
+        - p, proj:zeedlogic-prod:owner, exec, create, zeedlogic-prod/*, allow
+    - name: developer
+      description: Developers deploy to production like owners, without access to RBAC or the project.
+      groups: [zeedlogic-developers]
+      policies:
+        - p, proj:zeedlogic-prod:developer, projects, get, zeedlogic-prod, allow
+        - p, proj:zeedlogic-prod:developer, applications, get, zeedlogic-prod/*, allow
+        - p, proj:zeedlogic-prod:developer, applications, create, zeedlogic-prod/*, allow
+        - p, proj:zeedlogic-prod:developer, applications, update, zeedlogic-prod/*, allow
+        - p, proj:zeedlogic-prod:developer, applications, delete, zeedlogic-prod/*, allow
+        - p, proj:zeedlogic-prod:developer, applications, sync, zeedlogic-prod/*, allow
+        - p, proj:zeedlogic-prod:developer, applications, action/*, zeedlogic-prod/*, allow
+        - p, proj:zeedlogic-prod:developer, repositories, get, zeedlogic-prod/*, allow
+        - p, proj:zeedlogic-prod:developer, repositories, create, zeedlogic-prod/*, allow
+        - p, proj:zeedlogic-prod:developer, repositories, update, zeedlogic-prod/*, allow
+        - p, proj:zeedlogic-prod:developer, repositories, delete, zeedlogic-prod/*, allow
+        - p, proj:zeedlogic-prod:developer, logs, get, zeedlogic-prod/*, allow
+        - p, proj:zeedlogic-prod:developer, exec, create, zeedlogic-prod/*, allow
+    - name: viewer
+      description: Read only.
+      groups: [zeedlogic-viewers]
+      policies:
+        - p, proj:zeedlogic-prod:viewer, projects, get, zeedlogic-prod, allow
+        - p, proj:zeedlogic-prod:viewer, applications, get, zeedlogic-prod/*, allow
+        - p, proj:zeedlogic-prod:viewer, repositories, get, zeedlogic-prod/*, allow
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: jodywan-nonprod
+  namespace: argocd
+  labels: {app.kubernetes.io/part-of: tenant-gitops, tenant: jodywan}
+spec:
+  description: jodywan dev and stg
+  sourceRepos:
+    # The tenant's GitLab group (top-level group `<tenant>` with subgroups below it, decided; outside servers/pcls.jodywan.com/).
+    # `**` matches any depth: Argo CD treats `/` as a separator, so a single `*` would match only `<group>/<repo>` and not
+    # `<group>/<subgroup>/<repo>`. Any repo in the group may be deployed from and nothing outside it. Platform repos are not listed on purpose.
+    - https://gitlab.jodywan.com/jodywan/**
+  destinations:
+    - {server: https://kubernetes.default.svc, namespace: jodywan-dev}
+    - {server: https://kubernetes.default.svc, namespace: jodywan-stg}
+  clusterResourceWhitelist: []        # no cluster-scoped kinds
+  # Allowlist of namespaced kinds a tenant may deploy from Git. Everything else (ResourceQuota, LimitRange,
+  # NetworkPolicy, ...) stays with Capsule, the owners' kubectl and the platform team.
+  # Role and RoleBinding are deliberately NOT here: tenant owners manage RBAC with kubectl or
+  # helm, never through Argo CD. The deployer account is only `edit`, so Kubernetes refuses them as well.
+  namespaceResourceWhitelist:
+    - {group: apps, kind: Deployment}
+    - {group: apps, kind: StatefulSet}
+    - {group: argoproj.io, kind: Rollout}     # progressive delivery (docs/argo-rollouts.md); no analysis, no traffic routing
+    - {group: external-secrets.io, kind: SecretStore}      # own GitLab project only (docs/external-secrets.md); no ClusterSecretStore
+    - {group: external-secrets.io, kind: ExternalSecret}   # own SecretStore only; the token Secret is made by hand, never in Git
+    - {group: batch, kind: Job}
+    - {group: batch, kind: CronJob}
+    - {group: autoscaling, kind: HorizontalPodAutoscaler}
+    - {group: policy, kind: PodDisruptionBudget}
+    - {group: "", kind: Service}
+    - {group: "", kind: ConfigMap}
+    - {group: "", kind: Secret}
+    - {group: "", kind: ServiceAccount}
+    - {group: "", kind: PersistentVolumeClaim}
+    - {group: networking.k8s.io, kind: Ingress}   # class traefik; HTTPRoute is not usable by tenants (no RBAC, Gateway accepts platform namespaces only)
+  # Sync impersonation (needs application.sync.impersonation.enabled in argocd-cm): applications of this project
+  # are applied as the tenant's own deployer account, which can only act in this tenant's namespaces.
+  destinationServiceAccounts:
+    - server: https://kubernetes.default.svc
+      namespace: 'jodywan-*'
+      defaultServiceAccount: argocd:argocd-deployer-jodywan
+  roles:
+    - name: owner
+      description: Tenant owners. Create, edit, delete and sync applications; add repositories and tokens; logs and exec.
+      groups: [jodywan-owners]
+      policies:
+        - p, proj:jodywan-nonprod:owner, projects, get, jodywan-nonprod, allow
+        - p, proj:jodywan-nonprod:owner, applications, get, jodywan-nonprod/*, allow
+        - p, proj:jodywan-nonprod:owner, applications, create, jodywan-nonprod/*, allow
+        - p, proj:jodywan-nonprod:owner, applications, update, jodywan-nonprod/*, allow
+        - p, proj:jodywan-nonprod:owner, applications, delete, jodywan-nonprod/*, allow
+        - p, proj:jodywan-nonprod:owner, applications, sync, jodywan-nonprod/*, allow
+        - p, proj:jodywan-nonprod:owner, applications, override, jodywan-nonprod/*, allow
+        - p, proj:jodywan-nonprod:owner, applications, action/*, jodywan-nonprod/*, allow
+        - p, proj:jodywan-nonprod:owner, repositories, get, jodywan-nonprod/*, allow
+        - p, proj:jodywan-nonprod:owner, repositories, create, jodywan-nonprod/*, allow
+        - p, proj:jodywan-nonprod:owner, repositories, update, jodywan-nonprod/*, allow
+        - p, proj:jodywan-nonprod:owner, repositories, delete, jodywan-nonprod/*, allow
+        - p, proj:jodywan-nonprod:owner, logs, get, jodywan-nonprod/*, allow
+        - p, proj:jodywan-nonprod:owner, exec, create, jodywan-nonprod/*, allow
+    - name: developer
+      description: Developers. Create, edit and sync applications and add repositories in dev and stg only.
+      groups: [jodywan-developers]
+      policies:
+        - p, proj:jodywan-nonprod:developer, projects, get, jodywan-nonprod, allow
+        - p, proj:jodywan-nonprod:developer, applications, get, jodywan-nonprod/*, allow
+        - p, proj:jodywan-nonprod:developer, applications, create, jodywan-nonprod/*, allow
+        - p, proj:jodywan-nonprod:developer, applications, update, jodywan-nonprod/*, allow
+        - p, proj:jodywan-nonprod:developer, applications, delete, jodywan-nonprod/*, allow
+        - p, proj:jodywan-nonprod:developer, applications, sync, jodywan-nonprod/*, allow
+        - p, proj:jodywan-nonprod:developer, applications, action/*, jodywan-nonprod/*, allow
+        - p, proj:jodywan-nonprod:developer, repositories, get, jodywan-nonprod/*, allow
+        - p, proj:jodywan-nonprod:developer, repositories, create, jodywan-nonprod/*, allow
+        - p, proj:jodywan-nonprod:developer, repositories, update, jodywan-nonprod/*, allow
+        - p, proj:jodywan-nonprod:developer, repositories, delete, jodywan-nonprod/*, allow
+        - p, proj:jodywan-nonprod:developer, logs, get, jodywan-nonprod/*, allow
+        - p, proj:jodywan-nonprod:developer, exec, create, jodywan-nonprod/*, allow
+    - name: viewer
+      description: Read only.
+      groups: [jodywan-viewers]
+      policies:
+        - p, proj:jodywan-nonprod:viewer, projects, get, jodywan-nonprod, allow
+        - p, proj:jodywan-nonprod:viewer, applications, get, jodywan-nonprod/*, allow
+        - p, proj:jodywan-nonprod:viewer, repositories, get, jodywan-nonprod/*, allow
+        - p, proj:jodywan-nonprod:viewer, logs, get, jodywan-nonprod/*, allow
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: jodywan-prod
+  namespace: argocd
+  labels: {app.kubernetes.io/part-of: tenant-gitops, tenant: jodywan}
+spec:
+  description: jodywan production
+  sourceRepos:
+    # The tenant's GitLab group (top-level group `<tenant>` with subgroups below it, decided; outside servers/pcls.jodywan.com/).
+    # `**` matches any depth: Argo CD treats `/` as a separator, so a single `*` would match only `<group>/<repo>` and not
+    # `<group>/<subgroup>/<repo>`. Any repo in the group may be deployed from and nothing outside it. Platform repos are not listed on purpose.
+    - https://gitlab.jodywan.com/jodywan/**
+  destinations:
+    - {server: https://kubernetes.default.svc, namespace: jodywan-prod}
+  clusterResourceWhitelist: []        # no cluster-scoped kinds
+  # Allowlist of namespaced kinds a tenant may deploy from Git. Everything else (ResourceQuota, LimitRange,
+  # NetworkPolicy, ...) stays with Capsule, the owners' kubectl and the platform team.
+  # Role and RoleBinding are deliberately NOT here: tenant owners manage RBAC with kubectl or
+  # helm, never through Argo CD. The deployer account is only `edit`, so Kubernetes refuses them as well.
+  namespaceResourceWhitelist:
+    - {group: apps, kind: Deployment}
+    - {group: apps, kind: StatefulSet}
+    - {group: argoproj.io, kind: Rollout}     # progressive delivery (docs/argo-rollouts.md); no analysis, no traffic routing
+    - {group: external-secrets.io, kind: SecretStore}      # own GitLab project only (docs/external-secrets.md); no ClusterSecretStore
+    - {group: external-secrets.io, kind: ExternalSecret}   # own SecretStore only; the token Secret is made by hand, never in Git
+    - {group: batch, kind: Job}
+    - {group: batch, kind: CronJob}
+    - {group: autoscaling, kind: HorizontalPodAutoscaler}
+    - {group: policy, kind: PodDisruptionBudget}
+    - {group: "", kind: Service}
+    - {group: "", kind: ConfigMap}
+    - {group: "", kind: Secret}
+    - {group: "", kind: ServiceAccount}
+    - {group: "", kind: PersistentVolumeClaim}
+    - {group: networking.k8s.io, kind: Ingress}   # class traefik; HTTPRoute is not usable by tenants (no RBAC, Gateway accepts platform namespaces only)
+  # Sync impersonation (needs application.sync.impersonation.enabled in argocd-cm): applications of this project
+  # are applied as the tenant's own deployer account, which can only act in this tenant's namespaces.
+  destinationServiceAccounts:
+    - server: https://kubernetes.default.svc
+      namespace: 'jodywan-*'
+      defaultServiceAccount: argocd:argocd-deployer-jodywan
+  roles:
+    - name: owner
+      description: Tenant owners. Only owners create, change and sync production applications.
+      groups: [jodywan-owners]
+      policies:
+        - p, proj:jodywan-prod:owner, projects, get, jodywan-prod, allow
+        - p, proj:jodywan-prod:owner, applications, get, jodywan-prod/*, allow
+        - p, proj:jodywan-prod:owner, applications, create, jodywan-prod/*, allow
+        - p, proj:jodywan-prod:owner, applications, update, jodywan-prod/*, allow
+        - p, proj:jodywan-prod:owner, applications, delete, jodywan-prod/*, allow
+        - p, proj:jodywan-prod:owner, applications, sync, jodywan-prod/*, allow
+        - p, proj:jodywan-prod:owner, applications, override, jodywan-prod/*, allow
+        - p, proj:jodywan-prod:owner, applications, action/*, jodywan-prod/*, allow
+        - p, proj:jodywan-prod:owner, repositories, get, jodywan-prod/*, allow
+        - p, proj:jodywan-prod:owner, repositories, create, jodywan-prod/*, allow
+        - p, proj:jodywan-prod:owner, repositories, update, jodywan-prod/*, allow
+        - p, proj:jodywan-prod:owner, repositories, delete, jodywan-prod/*, allow
+        - p, proj:jodywan-prod:owner, logs, get, jodywan-prod/*, allow
+        - p, proj:jodywan-prod:owner, exec, create, jodywan-prod/*, allow
+    - name: developer
+      description: Developers deploy to production like owners, without access to RBAC or the project.
+      groups: [jodywan-developers]
+      policies:
+        - p, proj:jodywan-prod:developer, projects, get, jodywan-prod, allow
+        - p, proj:jodywan-prod:developer, applications, get, jodywan-prod/*, allow
+        - p, proj:jodywan-prod:developer, applications, create, jodywan-prod/*, allow
+        - p, proj:jodywan-prod:developer, applications, update, jodywan-prod/*, allow
+        - p, proj:jodywan-prod:developer, applications, delete, jodywan-prod/*, allow
+        - p, proj:jodywan-prod:developer, applications, sync, jodywan-prod/*, allow
+        - p, proj:jodywan-prod:developer, applications, action/*, jodywan-prod/*, allow
+        - p, proj:jodywan-prod:developer, repositories, get, jodywan-prod/*, allow
+        - p, proj:jodywan-prod:developer, repositories, create, jodywan-prod/*, allow
+        - p, proj:jodywan-prod:developer, repositories, update, jodywan-prod/*, allow
+        - p, proj:jodywan-prod:developer, repositories, delete, jodywan-prod/*, allow
+        - p, proj:jodywan-prod:developer, logs, get, jodywan-prod/*, allow
+        - p, proj:jodywan-prod:developer, exec, create, jodywan-prod/*, allow
+    - name: viewer
+      description: Read only.
+      groups: [jodywan-viewers]
+      policies:
+        - p, proj:jodywan-prod:viewer, projects, get, jodywan-prod, allow
+        - p, proj:jodywan-prod:viewer, applications, get, jodywan-prod/*, allow
+        - p, proj:jodywan-prod:viewer, repositories, get, jodywan-prod/*, allow
+        - p, proj:jodywan-prod:viewer, logs, get, jodywan-prod/*, allow

@@ -1,0 +1,42 @@
+# Developers get `edit` in dev, stg AND prod (owners and developers deploy everywhere; the only
+# thing developers cannot do is create or edit Roles and RoleBindings, which `edit` does not include).
+# `edit` includes reading Secrets and exec, in prod too. Applied by the Argo CD app `tenants` (appsets/tenants.yaml);
+# the Job in namespace-creator.yaml creates the namespaces first (sync waves: Tenants 0, Job 1, RoleBindings 2).
+# Add a namespace or tenant here and merge.
+# Note: `edit` can mint tokens for any ServiceAccount in the namespace. Keep privileged
+# ServiceAccounts out of the tenant namespaces.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: developers-edit, namespace: zeedlogic-dev, annotations: {argocd.argoproj.io/sync-wave: "2"}, labels: {reflection.proxy.projectcapsule.dev/enabled: "true"}}
+subjects: [{kind: Group, name: "oidc:zeedlogic-developers", apiGroup: rbac.authorization.k8s.io}]
+roleRef: {kind: ClusterRole, name: edit, apiGroup: rbac.authorization.k8s.io}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: developers-edit, namespace: zeedlogic-stg, annotations: {argocd.argoproj.io/sync-wave: "2"}, labels: {reflection.proxy.projectcapsule.dev/enabled: "true"}}
+subjects: [{kind: Group, name: "oidc:zeedlogic-developers", apiGroup: rbac.authorization.k8s.io}]
+roleRef: {kind: ClusterRole, name: edit, apiGroup: rbac.authorization.k8s.io}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: developers-edit, namespace: jodywan-dev, annotations: {argocd.argoproj.io/sync-wave: "2"}, labels: {reflection.proxy.projectcapsule.dev/enabled: "true"}}
+subjects: [{kind: Group, name: "oidc:jodywan-developers", apiGroup: rbac.authorization.k8s.io}]
+roleRef: {kind: ClusterRole, name: edit, apiGroup: rbac.authorization.k8s.io}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: developers-edit, namespace: jodywan-stg, annotations: {argocd.argoproj.io/sync-wave: "2"}, labels: {reflection.proxy.projectcapsule.dev/enabled: "true"}}
+subjects: [{kind: Group, name: "oidc:jodywan-developers", apiGroup: rbac.authorization.k8s.io}]
+roleRef: {kind: ClusterRole, name: edit, apiGroup: rbac.authorization.k8s.io}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: developers-edit, namespace: zeedlogic-prod, annotations: {argocd.argoproj.io/sync-wave: "2"}, labels: {reflection.proxy.projectcapsule.dev/enabled: "true"}}
+subjects: [{kind: Group, name: "oidc:zeedlogic-developers", apiGroup: rbac.authorization.k8s.io}]
+roleRef: {kind: ClusterRole, name: edit, apiGroup: rbac.authorization.k8s.io}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: developers-edit, namespace: jodywan-prod, annotations: {argocd.argoproj.io/sync-wave: "2"}, labels: {reflection.proxy.projectcapsule.dev/enabled: "true"}}
+subjects: [{kind: Group, name: "oidc:jodywan-developers", apiGroup: rbac.authorization.k8s.io}]
+roleRef: {kind: ClusterRole, name: edit, apiGroup: rbac.authorization.k8s.io}

@@ -1,0 +1,64 @@
+# Garage UI on k8s-1, phase 2: Authentik OIDC login and a public hostname (TLS at HAProxy on pfSense).
+#
+# Authentik objects (created on authentik.jodywan.com):
+#   provider  garage-ui-oauth2-provider   (confidential, redirect URI https://garage-k8s.jodywan.com/auth/oidc/callback)
+#   app       garage-ui-oauth-app         (policy binding: only group `cluster-admin` may open it)
+# The client secret is in the Secret garage-ui-oidc (key client-secret), created by hand, never in Git.
+config:
+  server:
+    domain: garage-k8s.jodywan.com
+    root_url: https://garage-k8s.jodywan.com
+  garage:
+    # S3 API through the Service; the admin API (3903) through the pod's DNS name, because the chart's
+    # Services (tag v2.4.1) do not expose port 3903.
+    endpoint: http://garage.garage.svc.cluster.local:3900
+    admin_endpoint: http://garage-0.garage-headless.garage.svc.cluster.local:3903
+  auth:
+    oidc:
+      enabled: true
+      provider_name: Authentik
+      client_id: aObWapIZiVCg96OM3JI3Bk50X9q83sQE0Go1UX7m      # a public identifier, not a secret
+      existingSecret:
+        name: garage-ui-oidc
+        key: client-secret
+      issuer_url: https://authentik.jodywan.com/application/o/garage-ui-oauth-app/
+      scopes: [openid, email, profile]
+      # Authentik puts the user's groups in the `groups` claim (raw names, without the kube `oidc:` prefix).
+      team_attribute_path: groups
+      role_attribute_path: groups
+      admin_role: cluster-admin
+      username_attribute: preferred_username
+      cookie_secure: true
+
+# Route through the shared Traefik Gateway, same pattern as Argo CD and Headlamp. The namespace `garage` carries
+# gateway-access=platform (set in appsets/storage-garage.yaml), which the Gateway's `web` listener requires.
+extraObjects:
+  - apiVersion: gateway.networking.k8s.io/v1
+    kind: HTTPRoute
+    metadata:
+      name: garage-ui
+      namespace: garage
+    spec:
+      parentRefs:
+        - name: traefik-gateway
+          namespace: traefik
+          sectionName: web
+      hostnames:
+        - garage-k8s.jodywan.com
+      rules:
+        - matches:
+            - path:
+                type: PathPrefix
+                value: /
+          backendRefs:
+            - name: garage-ui
+              port: 80
+# Garage UI (Noooste/garage-ui), chart garage-ui 0.13.0 (app v0.13.0), repo https://helm.noste.dev/.
+# Checked against `helm show values garage-ui/garage-ui --version 0.13.0`. Settings common to every cluster.
+replicaCount: 1
+resources:
+  requests:
+    cpu: 25m
+    memory: 64Mi
+  limits:
+    memory: 256Mi

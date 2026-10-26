@@ -1,0 +1,50 @@
+# Renovate (layer 1): a nightly CronJob that opens merge requests in platform-gitops for new chart and image versions.
+# It never merges. What it tracks and the rules: renovate.json at the repo root; plan and token: docs/renovate.md.
+# The CronJob is SUSPENDED until the Secret `renovate-env` (key RENOVATE_TOKEN) exists: see base/renovate/values.yaml.
+# Before the first sync: apply bootstrap/platform-project.yaml (the Renovate chart repo is in sourceRepos).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: renovate
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'renovate'
+    spec:
+      project: platform
+      sources:
+        - repoURL: https://docs.renovatebot.com/helm-charts
+          chart: renovate
+          targetRevision: "46.352.2"       # Renovate 44.149.2
+          helm:
+            releaseName: renovate
+            valueFiles:
+              - $values/base/renovate/values.yaml
+              - $values/overlays/{{ .cluster }}/renovate/values.yaml
+        - repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: '{{ .server }}'
+        namespace: renovate
+      syncPolicy:
+        automated:
+          prune: false
+          selfHeal: false
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - PruneLast=true
+        managedNamespaceMetadata:
+          labels:
+            pod-security.kubernetes.io/enforce: baseline

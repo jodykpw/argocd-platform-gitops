@@ -1,0 +1,100 @@
+# kube-prometheus-stack 92.3.0 (operator v0.94.1) with the bundled Grafana. Settings common to every cluster.
+# Checked against `helm show values prometheus-community/kube-prometheus-stack --version 92.3.0` and `helm template`.
+# Local retention, sizes, storage and replicas are in overlays/<cluster>/kube-prometheus-stack/values.yaml; long-term
+# data is in Thanos (docs/thanos.md).
+
+# One value gates dashboards, rules and the ServiceMonitor for each control-plane component below.
+# kube-scheduler (10259) and kube-controller-manager (10257) listen on all addresses on this cluster and answer
+# over HTTPS with the Prometheus ServiceAccount token (enabled).
+# etcd runs as a systemd service on the control planes with a plain-HTTP metrics listener on :2381
+# (ETCD_LISTEN_METRICS_URLS added, docs/control-plane-metrics.md). It is not a pod, so the chart gets the
+# three addresses instead of a selector. Addresses are cluster-specific: move them to the overlay on a second cluster.
+# kube-proxy binds its metrics to 127.0.0.1:10249: off on purpose (low value).
+kubeEtcd:
+  enabled: true
+  endpoints: []                  # the control plane addresses: overlays/<cluster>/kube-prometheus-stack/values.yaml
+  service:
+    enabled: true
+    port: 2381
+    targetPort: 2381
+  serviceMonitor:
+    scheme: http
+kubeControllerManager:
+  enabled: true
+  serviceMonitor:
+    https: true
+    insecureSkipVerify: true      # the components' certificates are signed by the cluster CA, not by name
+kubeScheduler:
+  enabled: true
+  serviceMonitor:
+    https: true
+    insecureSkipVerify: true
+kubeProxy:
+  enabled: false
+
+defaultRules:
+  create: true
+
+prometheusOperator:
+  # No admission webhook: it needs patch Jobs and hook ordering under Argo CD, and there is one platform admin.
+  admissionWebhooks:
+    enabled: false
+  tls:
+    enabled: false
+
+prometheus:
+  # Headless Service for the Thanos sidecar's gRPC port: the Thanos Querier discovers the sidecar through it.
+  thanosService:
+    enabled: true
+  thanosServiceMonitor:
+    enabled: true
+  prometheusSpec:
+    thanos:
+      objectStorageConfig:
+        # Secret created by hand (never in Git): key objstore.yml, S3 settings for Garage (docs/thanos.md)
+        existingSecret:
+          name: thanos-objstore
+          key: objstore.yml
+    walCompression: true
+    # Pick up every ServiceMonitor, PodMonitor, PrometheusRule and Probe in any namespace (Loki, Fluent Bit,
+    # Garage, Longhorn ...). Tenants have no RBAC for these CRDs (tests/kube-prometheus-stack.sh checks that).
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    scrapeConfigSelectorNilUsesHelmValues: false
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+
+alertmanager:
+  alertmanagerSpec:
+    storage:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+
+kube-state-metrics:
+  # Expose the Capsule tenant label of each namespace as a metric label (kube_namespace_labels), so
+  # per-tenant dashboards can join on it later.
+  metricLabelsAllowlist:
+    - namespaces=[capsule.clastix.io/tenant]
+
+# Grafana is its own app (appsets/grafana.yaml, base/grafana/values.yaml, docs/grafana.md). What stays
+# here: the stack chart still renders the default dashboards (28, folder Kubernetes) and `forceDeployDashboards` keeps
+# them although the Grafana subchart is off. The Grafana app finds them by the label grafana_dashboard.
+grafana:
+  enabled: false
+  forceDeployDashboards: true
+  defaultDashboardsTimezone: Europe/London
+  # Put every dashboard ConfigMap the chart creates into the folder Kubernetes (ours go to Platform from their own
+  # annotation in dashboards/platform).
+  sidecar:
+    dashboards:
+      annotations:
+        grafana_folder: Kubernetes
+
+# Traefik PodMonitor, the LAN Service and NetworkPolicy of the Thanos Querier and the platform alert rules are
+# cluster specific: overlays/<cluster>/kube-prometheus-stack/values.yaml.
+extraManifests: []

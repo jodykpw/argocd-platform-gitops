@@ -1,0 +1,14 @@
+# OCI Helm repositories used by layer 0 (Capsule, Capsule Proxy). No credentials: both charts are public.
+# Applied with kubectl by the bootstrap job (and by hand on a fresh cluster).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: repo-projectcapsule-charts
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+stringData:
+  type: helm
+  name: projectcapsule-charts
+  url: ghcr.io/projectcapsule/charts
+  enableOCI: "true"

@@ -1,0 +1,26 @@
+# CloudNativePG operator (chart cloudnative-pg 0.29.1, operator 1.30.1). Checked against `helm show values` and
+# `helm template`. Plan and test: docs/cloudnative-pg.md, tests/cloudnative-pg.sh.
+
+# CRDs come with the chart (Cluster, Pooler, Backup, ScheduledBackup, Database, Publication, Subscription, ...).
+# Server-side apply is on in the Argo CD app (the Cluster CRD is large).
+crds:
+  create: true
+
+# Watch every namespace, so a database can live next to the application that uses it.
+config:
+  clusterWide: true
+
+rbac:
+  create: true
+  # Tenants get NO CloudNativePG objects: the Cluster, Backup and Pooler kinds are not added to the default
+  # view/edit/admin roles. A Cluster can name its own image, pull data from an external server and write backups to an
+  # object store, all run by the operator (a cluster component with its own network access), so enabling it for
+  # tenants is a decision with guardrails (docs/cloudnative-pg.md).
+  aggregateClusterRoles: false
+
+# Metrics for Prometheus (a PodMonitor: the stack accepts monitors from any namespace).
+monitoring:
+  podMonitorEnabled: true
+  # Platform dashboards avoid Helm (docs/cluster/cluster-overview.md, lessons learned): none from the chart.
+  grafanaDashboard:
+    create: false

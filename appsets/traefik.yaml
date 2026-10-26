@@ -1,0 +1,48 @@
+# Traefik (layer 0): ingress controller and the shared Gateway `traefik-gateway` (Argo CD's own route). Moved here from
+# layer0/; same Helm release, rendered output byte-identical. Auto-sync ON, prune OFF.
+# A bad change can lock you out of the Argo CD UI: break-glass is the installer kubeconfig and
+# `kubectl -n argocd port-forward svc/argocd-server 8080:80`. Needs gateway-api-crds and metallb first.
+# Before the first sync: apply bootstrap/platform-project.yaml (traefik chart repo in sourceRepos). Docs: docs/jaeger.md (tracing).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: traefik
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'traefik'
+    spec:
+      project: platform
+      sources:
+        - repoURL: https://traefik.github.io/charts
+          chart: traefik
+          targetRevision: "41.6.1"
+          helm:
+            releaseName: traefik
+            valueFiles:
+              - $values/base/traefik/values.yaml
+              - $values/overlays/{{ .cluster }}/traefik/values.yaml
+        - repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: '{{ .server }}'
+        namespace: traefik
+      syncPolicy:
+        automated:
+          prune: false        # never delete anything because a file was removed
+          selfHeal: false
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - PruneLast=true

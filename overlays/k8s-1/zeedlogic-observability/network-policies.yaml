@@ -1,0 +1,20 @@
+# zeedlogic-dev may SEND traces to Jaeger (OTLP gRPC 4317 and HTTP 4318), and nothing else in the jaeger namespace. The other half is
+# the third rule of `jaeger-ingress` in overlays/k8s-1/jaeger/values.yaml. Write-only: Jaeger is read through the platform Grafana only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-to-jaeger
+  namespace: zeedlogic-dev
+  labels: {app.kubernetes.io/part-of: zeedlogic-observability}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: jaeger}
+          podSelector:
+            matchLabels: {app.kubernetes.io/name: jaeger}
+      ports:
+        - {port: 4317, protocol: TCP}
+        - {port: 4318, protocol: TCP}

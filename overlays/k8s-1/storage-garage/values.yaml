@@ -1,0 +1,20 @@
+# Garage on k8s-1.
+# data size: Longhorn can expand volumes later (allowVolumeExpansion), so start small.
+persistence:
+  data:
+    size: 30Gi
+    storageClass: longhorn
+  meta:
+    size: 2Gi
+    storageClass: longhorn
+resources:
+  requests:
+    cpu: 100m
+    memory: 384Mi
+  limits:
+    memory: 1Gi
+garage:
+  # One replica with replication_factor = 1. Redundancy comes from Longhorn (2 replicas underneath).
+  singleNode: true
+  consistencyMode: consistent
+  dbEngine: lmdb

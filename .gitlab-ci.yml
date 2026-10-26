@@ -1,0 +1,49 @@
+# Layer 0 pipeline. GitLab CI deploys Argo CD only; Argo CD deploys everything else (appsets/).
+# Runner: gitlab-runner-1 (10.1.5.135), outside the cluster, Docker executor. `validate` runs on the instance runner (tag docker-instance); `deploy-argocd` also runs on `docker-instance` (a dedicated runner was not needed for a single-user lab). The tools (helm, kubectl,
+# kubeconform, bash) come from the job image, so the runner host only needs Docker and a route to the API server.
+# Design and decisions: docs/gitlab-ci-layer0.md.
+#
+# Variables (Settings > CI/CD > Variables, all Protected, scoped to environment k8s-1-layer0):
+#   KUBECONFIG                          type File, a dedicated cluster-admin ServiceAccount kubeconfig, not an OIDC login
+#   ARGOCD_AUTHENTIK_CLIENT_SECRET      Masked, the dex.authentik.clientSecret value
+
+stages: [validate, deploy]
+
+default:
+  # Pinned: kubectl 1.36 matches the cluster (v1.36.4). Raise it with the cluster, not on its own.
+  image:
+    name: alpine/k8s:1.36.5
+    entrypoint: [""]
+
+# Every merge request and every push to main: render and check, touch nothing.
+validate:
+  stage: validate
+  tags: [docker-instance]   # instance runner: this job has no secrets and touches nothing
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - helm repo add argo https://argoproj.github.io/argo-helm
+    - helm repo update argo
+    - helm template argocd argo/argo-cd --version "$(sed -n 's/^CHART_VERSION="\(.*\)"/\1/p' layer0/argocd/deploy.sh)" -n argocd -f layer0/argocd/values.yaml > /dev/null
+    - >
+      kubeconform -ignore-missing-schemas -summary
+      -schema-location default
+      -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+      bootstrap/ appsets/ overlays/k8s-1/metallb-config/
+    - ./tests/overlay-split.sh
+
+# Deploy or upgrade Argo CD and wire it to this repo. Manual: a person starts it, on main only.
+deploy-argocd:
+  stage: deploy
+  tags: [docker-instance]   # instance runner, non-privileged, no Docker socket in jobs; KUBECONFIG is a Protected variable (main only)
+  environment:
+    name: k8s-1-layer0
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+  resource_group: k8s-1-layer0     # one deploy at a time
+  script:
+    - kubectl auth whoami
+    - cd layer0/argocd && ./deploy.sh
+    - kubectl -n argocd get applications

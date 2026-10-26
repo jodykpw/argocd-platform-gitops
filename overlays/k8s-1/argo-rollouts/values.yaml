@@ -1,0 +1,7 @@
+# Argo Rollouts on k8s-1: replicas, resources, retention and storage of this cluster. The base keeps only the generic settings
+# (docs/repo-layout.md).
+controller:
+  replicas: 1                 # leader election is on; one replica on a small cluster, a restart only delays a rollout step
+  resources:
+    requests: {cpu: 25m, memory: 64Mi}
+    limits: {memory: 256Mi}

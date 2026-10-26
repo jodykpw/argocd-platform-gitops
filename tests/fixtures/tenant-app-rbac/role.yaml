@@ -1,0 +1,10 @@
+# Fixture for tests/tenant-gitops.sh (E2E=1): a Role in Git. Argo CD must refuse it (RBAC is managed by owners
+# with kubectl, never through Argo CD).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: e2e-from-git
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get]

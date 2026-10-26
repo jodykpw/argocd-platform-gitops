@@ -1,0 +1,47 @@
+# Capsule (layer 0): multi-tenancy. Its webhooks fail closed and apply cluster-wide (a broken Capsule blocks every namespace
+# create), so sync it alone and watch it. Moved here from layer0/; same Helm release, rendered output
+# byte-identical. Auto-sync ON, prune OFF. The chart runs hook Jobs (CRD install, post-install): expected.
+# Before the first sync: apply bootstrap/platform-project.yaml and bootstrap/oci-repos.yaml. Tenants: appsets/tenants.yaml (after this app).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: capsule
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'capsule'
+    spec:
+      project: platform
+      sources:
+        - repoURL: ghcr.io/projectcapsule/charts
+          chart: capsule
+          targetRevision: "0.14.6"
+          helm:
+            releaseName: capsule
+            valueFiles:
+              - $values/base/capsule/values.yaml
+              - $values/overlays/{{ .cluster }}/capsule/values.yaml
+        - repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: '{{ .server }}'
+        namespace: capsule-system
+      syncPolicy:
+        automated:
+          prune: false        # never delete anything because a file was removed
+          selfHeal: false
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - PruneLast=true

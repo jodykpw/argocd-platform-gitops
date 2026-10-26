@@ -1,0 +1,20 @@
+# Renovate on k8s-1: GitLab at gitlab.jodywan.com and the one project it updates.
+renovate:
+  # Global (runner) configuration: where to run, and for which project. What to update is in renovate.json of the project.
+  config: |
+    {
+      "platform": "gitlab",
+      "endpoint": "https://gitlab.jodywan.com/api/v4/",
+      "gitAuthor": "Renovate Bot <renovate@jodywan.com>",
+      "autodiscover": false,
+      "repositories": ["servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops"],
+      "onboarding": false,
+      "requireConfig": "required",
+      "persistRepoData": false
+    }
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 1Gi

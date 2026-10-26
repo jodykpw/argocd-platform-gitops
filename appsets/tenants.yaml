@@ -1,0 +1,42 @@
+# Capsule Tenants and the developers-edit RoleBindings (layer 1; they were layer 0 but cannot exist
+# before Capsule, which is an Argo CD app). Files: overlays/<cluster>/tenants/ (tenant names are cluster data).
+# Auto-sync ON, prune OFF, and each Tenant carries sync-options Delete=false: deleting a Tenant deletes every namespace
+# of the tenant, so Argo CD must never remove one (removing a file, or deleting this Application, leaves it).
+# Needs the capsule app first. Sync waves inside this app: Tenants (0), the Job create-tenant-namespaces (1, a Sync hook:
+# Capsule only lets a tenant owner create tenant namespaces, so it impersonates one, with a ServiceAccount that can
+# impersonate nothing else), then the developers-edit RoleBindings (2). Files: overlays/<cluster>/tenants/.
+# Before the first sync nothing else is required: the platform project allows every namespace and cluster kind.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: tenants
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'tenants'
+    spec:
+      project: platform
+      source:
+        repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+        targetRevision: main
+        path: overlays/{{ .cluster }}/tenants
+      destination:
+        server: '{{ .server }}'
+        namespace: capsule-system      # Tenants are cluster-scoped; the RoleBindings name their own namespaces
+      syncPolicy:
+        automated:
+          prune: false
+          selfHeal: false
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}
+        syncOptions:
+          - ServerSideApply=true
+          - PruneLast=true

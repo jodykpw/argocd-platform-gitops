@@ -1,0 +1,53 @@
+# Trivy Operator (layer 1): continuous security scanning. It writes VulnerabilityReport, ConfigAuditReport,
+# ExposedSecretReport and RbacAssessmentReport objects next to every workload (platform and tenants) and exports
+# findings as Prometheus metrics. Plan, decisions and test: docs/trivy-operator.md, tests/trivy-operator.sh.
+# Before the first sync: apply bootstrap/platform-project.yaml (the aquasecurity chart repo is in sourceRepos).
+# Auto-sync ON (prune OFF) from the start; tests/trivy-operator.sh is run after the first sync.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: trivy-operator
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'trivy-operator'
+    spec:
+      project: platform
+      sources:
+        - repoURL: https://aquasecurity.github.io/helm-charts/
+          chart: trivy-operator
+          targetRevision: "0.37.0"        # Trivy Operator 0.35.0, Trivy 0.75.0
+          helm:
+            releaseName: trivy-operator
+            valueFiles:
+              - $values/base/trivy-operator/values.yaml
+              - $values/overlays/{{ .cluster }}/trivy-operator/values.yaml
+        - repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: '{{ .server }}'
+        namespace: trivy-system
+      # The operator writes its own reports (cluster-scoped and per namespace) and the compliance specs; none of
+      # them are in Git. Nothing to ignore for the chart's own objects.
+      syncPolicy:
+        automated:
+          prune: false        # never delete anything because a file was removed
+          selfHeal: false
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true      # the CRDs are large
+          - PruneLast=true
+        managedNamespaceMetadata:
+          labels:
+            pod-security.kubernetes.io/enforce: baseline

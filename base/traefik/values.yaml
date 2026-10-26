@@ -1,0 +1,45 @@
+# Traefik (layer 0), chart traefik 41.6.1. Minimum that is true on any cluster; hostnames, sizing and the trace
+# sample rate are in overlays/<cluster>/traefik/.
+ingressRoute:
+  dashboard:
+    enabled: true
+    entryPoints:
+      - web
+providers:
+  kubernetesGateway:
+    enabled: true
+  kubernetesIngress:
+    enabled: true
+  # serves Ingresses with ingressClassName: nginx and nginx.ingress.kubernetes.io/* annotations
+  kubernetesIngressNGINX:
+    enabled: true
+image:
+  tag: "3.7.13"
+
+podDisruptionBudget:
+  enabled: true
+
+# The default Gateway `traefik-gateway` (listener web) accepts HTTPRoutes only from namespaces labelled
+# gateway-access=platform (platform apps such as Argo CD). Tenant namespaces are not labelled, so a tenant
+# cannot attach a route or take over a hostname. Label a namespace with:
+#   kubectl label ns <name> gateway-access=platform
+gateway:
+  listeners:
+    web:
+      namespacePolicy:
+        from: Selector
+        selector:
+          matchLabels:
+            gateway-access: platform
+
+# Tracing: Traefik sends a span for the requests it routes to Jaeger in the cluster (docs/jaeger.md).
+# Export is asynchronous: if Jaeger is unreachable Traefik only logs errors and keeps serving.
+# The sample rate is in the overlay (the HAProxy health checks and Argo CD polling are frequent).
+tracing:
+  serviceName: traefik
+  otlp:
+    enabled: true
+    grpc:
+      enabled: true
+      endpoint: jaeger.jaeger.svc.cluster.local:4317
+      insecure: true            # plain gRPC inside the cluster

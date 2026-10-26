@@ -1,0 +1,27 @@
+# NFS on k8s-1: TrueNAS dataset byte-haven/k8s-1-nfs.
+# Tested from all three workers: NFS v4.2 mounts, root can write (Maproot works).
+nfs:
+  server: 10.1.5.202
+  path: /mnt/byte-haven/k8s-1-nfs
+  mountOptions:
+    - nfsvers=4.2
+    - hard
+  reclaimPolicy: Retain       # the PV that points at the NFS root
+# nfs-subdir-external-provisioner chart 4.0.18 (app v4.0.2): settings common to every cluster.
+# Checked against `helm show values nfs-subdir/nfs-subdir-external-provisioner --version 4.0.18`.
+replicaCount: 1
+storageClass:
+  create: true
+  name: nfs
+  defaultClass: false          # Longhorn or another class may become default later
+  accessModes: ReadWriteMany   # NFS is for shared volumes
+  reclaimPolicy: Retain        # a deleted PVC keeps its directory
+  archiveOnDelete: true        # if reclaim is ever changed to Delete, keep an archive copy
+  allowVolumeExpansion: true   # the size is only a label on NFS: the real limit is the dataset quota
+  volumeBindingMode: Immediate
+resources:
+  requests:
+    cpu: 25m
+    memory: 32Mi
+  limits:
+    memory: 128Mi

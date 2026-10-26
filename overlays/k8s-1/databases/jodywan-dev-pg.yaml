@@ -1,0 +1,52 @@
+# The PostgreSQL database for the jodywan tenant's dev environment (PostGIS, like ZeedLogic needs). One instance: this is
+# a dev database on a lab cluster, so there is no failover. Raise `instances` for anything that must survive a node.
+# Image: PostgreSQL 16.9 with PostGIS 3.5.2 (amd64), the same PostgreSQL version Docker Compose runs, pinned by tag and
+# digest. Checked 2026-10-17 against the registry; update both together.
+# Storage: `longhorn` keeps two replicas and is Retain (docs/databases.md, section 5).
+# No backups are configured yet (docs/cloudnative-pg.md, section 5).
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: jodywan-dev-pg
+  namespace: databases
+  labels: {app.kubernetes.io/part-of: databases}
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgis:16-3.5-177@sha256:dba71e1ae5aa91c2cfa4cd4531f2ce2ebeb839293b650414e3bc832c01290bca
+  storage:
+    size: 10Gi
+    storageClass: longhorn
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+  bootstrap:
+    initdb:
+      database: app
+      owner: app
+      postInitApplicationSQL:
+        - CREATE EXTENSION IF NOT EXISTS postgis
+        - CREATE EXTENSION IF NOT EXISTS "uuid-ossp"
+  monitoring:
+    enablePodMonitor: true
+  # The role the ZeedLogic core seed expects as the owner of everything (`OWNER TO zeedlogic_root`, ADR-0123 in
+  # zeedlogic-microservices). The password is in the Secret named here: created by hand, never in Git (docs/databases.md).
+  managed:
+    roles:
+      - name: zeedlogic_root
+        ensure: present
+        login: true
+        # The operator fills these two in. Argo CD compares list items whole, so leaving them out shows the Cluster
+        # OutOfSync for good (seen 2026-10-18); the values below are the operator's own defaults.
+        connectionLimit: -1
+        inherit: true
+        passwordSecret:
+          name: jodywan-dev-pg-zeedlogic-root
+      # Keycloak's own role and database (below), so identity data does not share the `app` database. Same password rule:
+      # the Secret is created by hand, never in Git (docs/databases.md, "The Keycloak database").
+      - name: keycloak
+        ensure: present
+        login: true
+        connectionLimit: -1
+        inherit: true
+        passwordSecret:
+          name: jodywan-dev-pg-keycloak

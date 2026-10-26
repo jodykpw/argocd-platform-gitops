@@ -1,0 +1,21 @@
+# Argo CD deployer identities, one per tenant. Argo CD "borrows" the account of the tenant whose application it syncs
+# (sync impersonation, AppProject destinationServiceAccounts), so what lands in a tenant's namespaces is capped by
+# what THAT tenant's account may do, even if an AppProject is wrong.
+# They live in the argocd namespace on purpose: tenant developers have `edit` in their own namespaces and could mint a
+# token for any ServiceAccount there, but they have no access to argocd. Nobody logs in as these accounts.
+# Rights: Capsule owner of ONLY their tenant with clusterRole `edit` (set on the Tenant objects, see
+# docs/tenant-gitops.md). `edit` deploys workloads, Services, ConfigMaps and Secrets but cannot create Roles or
+# RoleBindings: tenant owners manage RBAC with kubectl or helm, never through Argo CD.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: argocd-deployer-zeedlogic
+  namespace: argocd
+  labels: {app.kubernetes.io/part-of: tenant-gitops, capsule.clastix.io/tenant-deployer: zeedlogic}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: argocd-deployer-jodywan
+  namespace: argocd
+  labels: {app.kubernetes.io/part-of: tenant-gitops, capsule.clastix.io/tenant-deployer: jodywan}

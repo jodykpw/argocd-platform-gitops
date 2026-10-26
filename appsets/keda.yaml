@@ -1,0 +1,66 @@
+# KEDA (layer 1): event-driven autoscaling. It creates and drives HorizontalPodAutoscalers from ScaledObjects (cron,
+# Prometheus, queues, ...) and can scale to zero. Plan, risks and test: docs/keda.md, tests/keda.sh.
+# Before the first sync: apply bootstrap/platform-project.yaml (the kedacore chart repo is in sourceRepos).
+# Auto-sync ON (tests/keda.sh passed, 17/17), prune OFF.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: keda
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'keda'
+    spec:
+      project: platform
+      sources:
+        - repoURL: https://kedacore.github.io/charts
+          chart: keda
+          targetRevision: "2.21.0"        # KEDA 2.21.0
+          helm:
+            releaseName: keda
+            valueFiles:
+              - $values/base/keda/values.yaml
+              - $values/overlays/{{ .cluster }}/keda/values.yaml
+        - repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: '{{ .server }}'
+        namespace: keda
+      # KEDA's operator writes the CA bundle of its own certificates into the APIService and the admission webhook
+      # configuration at runtime; Argo CD would show them OutOfSync forever.
+      ignoreDifferences:
+        - group: apiregistration.k8s.io
+          kind: APIService
+          jqPathExpressions:
+            - .spec.caBundle
+        - group: admissionregistration.k8s.io
+          kind: ValidatingWebhookConfiguration
+          jqPathExpressions:
+            - .webhooks[]?.clientConfig.caBundle
+        - group: apiextensions.k8s.io
+          kind: CustomResourceDefinition
+          jqPathExpressions:
+            - .spec.conversion.webhook.clientConfig.caBundle
+      syncPolicy:
+        automated:
+          prune: false
+          selfHeal: false
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - PruneLast=true
+          - RespectIgnoreDifferences=true
+        managedNamespaceMetadata:
+          labels:
+            pod-security.kubernetes.io/enforce: baseline

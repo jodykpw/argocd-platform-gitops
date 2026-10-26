@@ -1,0 +1,28 @@
+# Applies TenantImageRegistries to Pods in tenant namespaces. Approved: Docker Hub (docker.io, also
+# when the image name has no host), ghcr.io, registry.k8s.io, the GitLab registry and Quay. To add a registry: add it to
+# the list below and to docs/gatekeeper.md. `deny` (0 violations in `dryrun`).
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: TenantImageRegistries
+metadata:
+  name: tenant-image-registries
+  labels: {app.kubernetes.io/part-of: tenant-guardrails}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+    namespaceSelector:
+      matchExpressions:
+        - {key: capsule.clastix.io/tenant, operator: Exists}
+  parameters:
+    registries:
+      - docker.io
+      - index.docker.io
+      - registry-1.docker.io
+      - ghcr.io
+      - registry.k8s.io
+      - gitlab-registry.jodywan.com
+      - quay.io

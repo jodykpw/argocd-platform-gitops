@@ -1,0 +1,35 @@
+# Velero (chart vmware-tanzu/velero 12.2.1, app 1.18.2). Objects only: no node agent (no file-system volume
+# backup), no volume snapshots (no CSI snapshot CRDs in this cluster; Longhorn backs up volumes itself).
+# Plan and test: docs/velero.md, tests/velero.sh.
+
+initContainers:
+  - name: velero-plugin-for-aws          # S3 object store plugin; Garage speaks S3
+    image: velero/velero-plugin-for-aws:v1.14.4
+    imagePullPolicy: IfNotPresent
+    volumeMounts:
+      - mountPath: /target
+        name: plugins
+
+configuration:
+  backupStorageLocation: []           # the S3 target is cluster specific: overlays/<cluster>/velero/values.yaml
+  volumeSnapshotLocation: []
+
+credentials:
+  useSecret: true
+  existingSecret: velero-s3              # created by hand: key `cloud` (aws credentials file format)
+
+snapshotsEnabled: false
+deployNodeAgent: false
+# CRDs come from the chart's crds/ directory (Argo CD installs them); the upgrade job is not needed.
+upgradeCRDs: false
+cleanUpCRDs: false
+
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+
+# Reloader (docs/reloader.md): restart Velero when the credentials Secret changes (the plugin reads it at start).
+# Annotation on the Deployment itself.
+annotations:
+  secret.reloader.stakater.com/reload: "velero-s3"

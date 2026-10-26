@@ -1,0 +1,9 @@
+# Never commit: secrets, keys, dated manual copies
+patch-secret.yaml
+*.key
+*.pem
+*.p12
+*.pfx
+.env
+.env.*
+backup-*

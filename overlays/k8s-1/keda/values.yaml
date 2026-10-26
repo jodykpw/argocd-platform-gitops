@@ -1,0 +1,14 @@
+# KEDA on k8s-1: replicas, resources, retention and storage of this cluster. The base keeps only the generic settings
+# (docs/repo-layout.md).
+# Small footprint: this cluster has about 20 to 30% memory used per node and one replica of each part is enough.
+resources:
+  operator:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 192Mi}
+  metricServer:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 192Mi}
+  webhooks:
+    requests: {cpu: 25m, memory: 32Mi}
+    limits: {memory: 128Mi}
+clusterName: k8s-1

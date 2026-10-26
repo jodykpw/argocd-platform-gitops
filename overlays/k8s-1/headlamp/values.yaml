@@ -1,0 +1,39 @@
+# Headlamp on k8s-1.
+# OIDC (issuer, client ID, callback, secret) is in the Secret `headlamp-oidc`, created by hand: docs/headlamp.md.
+# It reuses the Authentik provider/client of the kube-apiserver: the API server only accepts tokens whose
+# audience is its own --oidc-client-id, so a separate client would get its tokens rejected.
+# Redirect URIs added in Authentik: https://headlamp.jodywan.com/oidc-callback (public,
+# TLS at HAProxy) and http://headlamp.jodywan.com/oidc-callback (LAN tests).
+
+# Route through the shared Traefik Gateway (same pattern as Argo CD). The namespace carries
+# gateway-access=platform (set in the ApplicationSet), which the `web` listener requires.
+httpRoute:
+  enabled: true
+  parentRefs:
+    - name: traefik-gateway
+      namespace: traefik
+      sectionName: web
+  hostnames:
+    - headlamp.jodywan.com
+# Headlamp (Kubernetes SIG UI): the successor of the archived Kubernetes Dashboard.
+# Chart headlamp 0.45.0. Checked against `helm show values headlamp/headlamp --version 0.45.0`.
+replicaCount: 1
+resources:
+  requests:
+    cpu: 25m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+config:
+  oidc:
+    # The Authentik provider (kube-apiserver) is a CONFIDENTIAL client, so a client secret is needed.
+    # The whole OIDC configuration, including the secret, lives in one Secret created by hand (never in Git):
+    #   headlamp-oidc  (keys OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, OIDC_ISSUER_URL, OIDC_CALLBACK_URL,
+    #                   OIDC_VALIDATOR_CLIENT_ID, OIDC_VALIDATOR_ISSUER_URL, OIDC_USE_PKCE, OIDC_SCOPES)
+    # See docs/headlamp.md for the command. With externalSecret the other config.oidc.* values are ignored.
+    secret:
+      create: false
+    externalSecret:
+      enabled: true
+      name: headlamp-oidc
+      hasScopes: true

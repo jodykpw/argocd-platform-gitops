@@ -1,0 +1,19 @@
+# The Argo CD application for the zeedlogic sample app (what the "New App" form creates). Application names are
+# unique in the argocd namespace across ALL tenants: the jodywan one is sample-app-jodywan. Project zeedlogic-nonprod allows the
+# destination namespace zeedlogic-dev and the repo group zeedlogic/*; the sync runs as argocd-deployer-zeedlogic.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sample-app
+  namespace: argocd
+spec:
+  project: zeedlogic-nonprod
+  source:
+    repoURL: https://gitlab.jodywan.com/zeedlogic/gitops/sample-app.git
+    targetRevision: main
+    path: .
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: zeedlogic-dev
+  syncPolicy:
+    syncOptions: [CreateNamespace=false]

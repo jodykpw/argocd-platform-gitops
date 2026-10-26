@@ -1,0 +1,4 @@
+patch-secret.yaml
+*.key
+*.pem
+backup-*.yaml

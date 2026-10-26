@@ -1,0 +1,41 @@
+# A small web server that meets every tenant rule: pinned image from an allowed registry (docker.io), limits on every
+# container (the namespace quota demands them), non-root, no extra capabilities, seccomp RuntimeDefault.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-app
+  labels: {app.kubernetes.io/name: sample-app}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app.kubernetes.io/name: sample-app}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: sample-app}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: web
+          image: nginxinc/nginx-unprivileged:1.27.3
+          ports:
+            - {name: http, containerPort: 8080}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 100m, memory: 64Mi}
+          readinessProbe:
+            httpGet: {path: /, port: http}
+          volumeMounts:
+            - {name: page, mountPath: /usr/share/nginx/html, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: page
+          configMap: {name: sample-page}
+        - name: tmp
+          emptyDir: {}

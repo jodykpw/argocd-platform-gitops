@@ -1,0 +1,24 @@
+# Top-level Application for this repo (was named root): syncs every ApplicationSet in appsets/ (app of apps). Applied once with `kubectl apply`.
+# Apply once, after bootstrap/platform-project.yaml. Auto-sync ON with prune OFF: a new or changed
+# ApplicationSet is applied after every push, but removing a file never deletes an ApplicationSet (and so never its
+# Application). This file itself is not synced by Argo CD: re-apply it with kubectl after changing it.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-gitops
+  namespace: argocd
+spec:
+  project: platform
+  source:
+    repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+    targetRevision: main
+    path: appsets
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: false
+    syncOptions:
+      - CreateNamespace=false

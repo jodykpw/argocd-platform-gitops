@@ -1,0 +1,71 @@
+# Capsule Tenant for zeedlogic (stricter team). Applied by the Argo CD app `tenants` (appsets/tenants.yaml), after the `capsule` app.
+# API version checked against chart 0.14.6 (v1beta2 is the storage version).
+# Delete=false: deleting this Tenant deletes every namespace of the tenant. Argo CD must never remove it, not even when the
+# Application is deleted. Remove a Tenant by hand after a review, never by removing a file.
+apiVersion: capsule.clastix.io/v1beta2
+kind: Tenant
+metadata:
+  name: zeedlogic
+  annotations:
+    argocd.argoproj.io/sync-options: Delete=false
+spec:
+  owners:
+    - kind: Group
+      name: oidc:zeedlogic-owners
+      clusterRoles: [admin, capsule-namespace-deleter]
+      # Cluster-scoped kinds the owners may list through Capsule Proxy (their own namespaces are always listed).
+      proxySettings:
+        - kind: StorageClasses
+          operations: [List]
+        - kind: IngressClasses
+          operations: [List]
+    # Argo CD deploys this tenant's applications as this account (sync impersonation, platform-gitops
+    # docs/tenant-gitops.md). Owner of THIS tenant only, clusterRole edit: no Roles or RoleBindings through Argo CD.
+    - kind: ServiceAccount
+      name: system:serviceaccount:argocd:argocd-deployer-zeedlogic
+      clusterRoles: [edit]
+  additionalRoleBindings:
+    - clusterRoleName: view
+      labels:
+        reflection.proxy.projectcapsule.dev/enabled: "true"
+      subjects:
+        - kind: Group
+          name: oidc:zeedlogic-developers
+          apiGroup: rbac.authorization.k8s.io
+        - kind: Group
+          name: oidc:zeedlogic-viewers
+          apiGroup: rbac.authorization.k8s.io
+  # IngressClasses the tenant may use (also what Capsule Proxy lists for them). Traefik is the default;
+  # its nginx-annotation compatibility needs no separate class for tenants.
+  ingressOptions:
+    allowedClasses:
+      allowed: [traefik]
+  namespaceOptions:
+    quota: 3
+    # Pod Security Admission on every tenant namespace (docs/tenant-guardrails.md): `baseline` is
+    # enforced (no privileged pods, hostPath, hostNetwork, hostPID, hostPort, extra capabilities), `restricted` only
+    # warns and audits. Owners cannot change namespace labels set here.
+    additionalMetadata:
+      labels:
+        pod-security.kubernetes.io/enforce: baseline
+        pod-security.kubernetes.io/enforce-version: latest
+        pod-security.kubernetes.io/audit: restricted
+        pod-security.kubernetes.io/audit-version: latest
+        pod-security.kubernetes.io/warn: restricted
+        pod-security.kubernetes.io/warn-version: latest
+  # Tenants publish through Traefik (HTTPRoute) only: no LoadBalancer (MetalLB addresses), NodePort or ExternalName.
+  serviceOptions:
+    allowedServices:
+      loadBalancer: false
+      nodePort: false
+      externalName: false
+  # `resourceQuotas` is deprecated in Capsule 0.14 (apply prints a warning) but still works.
+  # Migration target is `rules[].quota`, which the 0.14.6 CRD marks "not final" and which is
+  # shared per rule, not a drop-in for scope: Tenant. Revisit on the next chart upgrade.
+  resourceQuotas:
+    scope: Tenant
+    items:
+      - hard:
+          limits.cpu: "16"
+          limits.memory: 32Gi
+          pods: "100"

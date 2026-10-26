@@ -1,0 +1,48 @@
+# AppProject for everything the platform team deploys through Argo CD (layer 1).
+# Only the cluster-admin and ArgoCD Admins groups can use it. Applied with `kubectl apply` (not synced by Argo CD):
+# re-apply it whenever sourceRepos changes.
+# Add each chart repo here when its first app is added.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: argocd
+spec:
+  description: Platform team, cluster-scoped resources and platform apps
+  sourceRepos:
+    - https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+    - https://charts.longhorn.io
+    - https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/
+    - https://git.deuxfleurs.fr/Deuxfleurs/garage.git
+    - https://kubernetes-sigs.github.io/headlamp/
+    - https://helm.noste.dev/
+    - https://grafana.github.io/helm-charts
+    - https://fluent.github.io/helm-charts
+    - https://prometheus-community.github.io/helm-charts
+    - https://stevehipwell.github.io/helm-charts/
+    - https://jaegertracing.github.io/helm-charts
+    - https://vmware-tanzu.github.io/helm-charts
+    - https://stakater.github.io/stakater-charts
+    - https://kedacore.github.io/charts
+    - https://cloudnative-pg.github.io/charts
+    - https://aquasecurity.github.io/helm-charts/
+    - https://grafana-community.github.io/helm-charts
+    - https://charts.external-secrets.io
+    - https://argoproj.github.io/argo-helm
+    - https://docs.renovatebot.com/helm-charts
+    - https://open-policy-agent.github.io/gatekeeper/charts
+    # layer 0 (appsets/: metallb, traefik, capsule, capsule-proxy)
+    - https://metallb.github.io/metallb
+    - https://traefik.github.io/charts
+    - ghcr.io/projectcapsule/charts
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: '*'
+  clusterResourceWhitelist:
+    - group: '*'
+      kind: '*'
+  roles:
+    - name: admin
+      groups: [cluster-admin, ArgoCD Admins]
+      policies:
+        - p, proj:platform:admin, applications, *, platform/*, allow

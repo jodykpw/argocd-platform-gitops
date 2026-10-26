@@ -1,0 +1,33 @@
+# Fluent Bit 0.58.3 (app 5.1.3): DaemonSet that ships container logs to Loki. Settings common to every cluster.
+# Checked against `helm show values fluent/fluent-bit --version 0.58.3` and `helm template`.
+kind: DaemonSet
+
+testFramework:
+  enabled: false        # no Helm test pod (Argo CD would render it as a normal Pod)
+
+rbac:
+  create: true          # ClusterRole: get, list, watch on pods and namespaces (the kubernetes filter needs both)
+
+config:
+  service: |
+    [SERVICE]
+        Daemon Off
+        Flush 1
+        Log_Level {{ .Values.logLevel }}
+        Parsers_File /fluent-bit/etc/parsers.conf
+        Parsers_File /fluent-bit/etc/conf/custom_parsers.conf
+        HTTP_Server On
+        HTTP_Listen 0.0.0.0
+        HTTP_Port {{ .Values.metricsPort }}
+        Health_Check On
+
+  customParsers: |
+    [PARSER]
+        Name docker_no_time
+        Format json
+        Time_Keep Off
+        Time_Key time
+        Time_Format %Y-%m-%dT%H:%M:%S.%L
+
+serviceMonitor:
+  enabled: true         # kube-prometheus-stack is installed (CRD exists); Prometheus picks it up

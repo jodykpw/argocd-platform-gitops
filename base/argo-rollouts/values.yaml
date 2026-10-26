@@ -1,0 +1,67 @@
+# Argo Rollouts (chart argo/argo-rollouts 2.43.6, app v1.10.0). Checked against `helm show values` and `helm template`.
+# Plan, decisions, tenant model and test: docs/argo-rollouts.md, tests/argo-rollouts.sh.
+
+installCRDs: true
+keepCRDs: true               # a removed chart must not delete every Rollout with its CRD
+
+# The chart aggregates rights on Rollout, AnalysisTemplate, AnalysisRun, Experiment (and ClusterAnalysisTemplate) into the
+# built-in view, edit and admin roles. That would hand tenants the analysis kinds, whose `web` and `prometheus` providers
+# make the CONTROLLER call any URL (the same SSRF reasoning as KEDA triggers). Off: tenants get exactly `rollouts` from
+# tenant-baseline/argo-rollouts-rbac.yaml. (The External Secrets chart did the same with generators, found by its test.)
+createClusterAggregateRoles: false
+
+controller:
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true           # the stack accepts monitors from any namespace
+  # Traffic routing through the Gateway API (Traefik 3.7 is a tested provider of the plugin). The plugin binary is copied
+  # from its own image by an init container instead of being downloaded from GitHub when the controller starts: the
+  # version is pinned here and nothing is fetched at runtime.
+  initContainers:
+    - name: copy-gwapi-plugin
+      image: ghcr.io/argoproj-labs/rollouts-plugin-trafficrouter-gatewayapi:v0.17.0
+      command: ["/bin/sh", "-c"]
+      args:
+        - cp /bin/rollouts-plugin-trafficrouter-gatewayapi /plugins
+      volumeMounts:
+        - name: gwapi-plugin
+          mountPath: /plugins
+  trafficRouterPlugins:
+    - name: argoproj-labs/gatewayAPI
+      location: "file:///plugins/rollouts-plugin-trafficrouter-gatewayapi"
+  volumes:
+    - name: gwapi-plugin
+      emptyDir: {}
+  volumeMounts:
+    - name: gwapi-plugin
+      mountPath: /plugins
+
+# RBAC of the controller for the traffic routers: only the Gateway API (HTTPRoute) is used on this cluster.
+providerRBAC:
+  enabled: true
+  providers:
+    istio: false
+    smi: false
+    ambassador: false
+    awsLoadBalancerController: false
+    awsAppMesh: false
+    traefik: false
+    apisix: false
+    contour: false
+    glooPlatform: false
+    gatewayAPI: true
+  # The Gateway API plugin documents get, list, update AND patch on HTTPRoutes; the chart's provider rule has no patch.
+  additionalRules:
+    - apiGroups: ["gateway.networking.k8s.io"]
+      resources: ["httproutes"]
+      verbs: ["patch"]
+
+# The Rollouts dashboard has no login: not deployed (Argo CD shows Rollouts, Grafana shows the metrics).
+dashboard:
+  enabled: false
+
+# Notifications are not used (Alertmanager covers it).
+notifications:
+  secret:
+    create: false

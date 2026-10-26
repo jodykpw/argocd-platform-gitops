@@ -1,0 +1,48 @@
+# blackbox-exporter (layer 1): probes the public UIs, the Authentik issuer, GitLab and the TCP ports of the backup
+# targets from inside the cluster and reports probe_success and certificate expiry to Prometheus. Alerts are in
+# base/kube-prometheus-stack/values.yaml (platform-alerts, group platform-probes).
+# Auto-sync ON (tests/blackbox-exporter.sh passed, 16/16), prune OFF. Plan: docs/blackbox-exporter.md.
+# Needs kube-prometheus-stack first (Probe CRD, namespace monitoring). The chart repo prometheus-community is
+# already in the AppProject.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: blackbox-exporter
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'blackbox-exporter'
+    spec:
+      project: platform
+      sources:
+        - repoURL: https://prometheus-community.github.io/helm-charts
+          chart: prometheus-blackbox-exporter
+          targetRevision: "11.20.0"      # blackbox-exporter v0.29.0
+          helm:
+            releaseName: blackbox-exporter
+            valueFiles:
+              - $values/base/blackbox-exporter/values.yaml
+              - $values/overlays/{{ .cluster }}/blackbox-exporter/values.yaml
+        - repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: '{{ .server }}'
+        namespace: monitoring
+      syncPolicy:
+        automated:
+          prune: false
+          selfHeal: false
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}
+        syncOptions:
+          - ServerSideApply=true
+          - PruneLast=true

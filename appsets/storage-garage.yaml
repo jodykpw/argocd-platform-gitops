@@ -1,0 +1,70 @@
+# Garage S3 object storage, in the cluster (layer 1). Deployed, auto-sync (prune OFF).
+# The chart is a folder in Garage's Git repo (no Helm repo), pinned to the tag v2.4.1.
+# Before the first sync (see docs/storage-garage.md):
+#   1. apply bootstrap/platform-project.yaml (the Garage Git repo was added to sourceRepos)
+#   2. kubectl create namespace garage
+#   3. create the RPC secret by hand (never in Git)
+# After the first sync: assign the cluster layout once (docs/storage-garage.md).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: storage-garage
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'storage-garage'
+    spec:
+      project: platform
+      sources:
+        - repoURL: https://git.deuxfleurs.fr/Deuxfleurs/garage.git
+          targetRevision: v2.4.1
+          path: script/helm/garage
+          helm:
+            releaseName: garage
+            valueFiles:
+              - $values/base/storage-garage/values.yaml
+              - $values/overlays/{{ .cluster }}/storage-garage/values.yaml
+        - repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: '{{ .server }}'
+        namespace: garage
+      # The API server adds defaults to the StatefulSet's volumeClaimTemplates (apiVersion, kind, volumeMode,
+      # status), which Argo CD shows as OutOfSync. volumeClaimTemplates are immutable anyway.
+      ignoreDifferences:
+        # Reloader writes the time and cause of its last restart into the pod template (docs/reloader.md).
+        - group: apps
+          kind: StatefulSet
+          name: garage
+          jqPathExpressions:
+            - .spec.template.metadata.annotations."reloader.stakater.com/last-reloaded-from"
+        - group: apps
+          kind: StatefulSet
+          jsonPointers:
+            - /spec/volumeClaimTemplates
+      syncPolicy:
+        automated:
+          prune: false        # never delete anything because a file was removed
+          selfHeal: false
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - PruneLast=true
+          - RespectIgnoreDifferences=true
+        managedNamespaceMetadata:
+          labels:
+            # the Traefik Gateway listener only accepts routes from namespaces with this label
+            # (the Garage UI route lives in this namespace)
+            gateway-access: platform
+            pod-security.kubernetes.io/enforce: baseline

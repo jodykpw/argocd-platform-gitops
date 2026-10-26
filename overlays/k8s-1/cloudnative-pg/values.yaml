@@ -1,0 +1,16 @@
+# CloudNativePG on k8s-1: replicas and resources of this cluster. The base keeps only the generic settings
+# (docs/repo-layout.md).
+# Two operator replicas on different workers (leader election): running databases keep serving if the operator is
+# down, but failover and changes need it, so it should survive one node.
+replicaCount: 2
+resources:
+  requests: {cpu: 50m, memory: 128Mi}
+  limits: {memory: 512Mi}
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: cloudnative-pg
+        app.kubernetes.io/instance: cnpg

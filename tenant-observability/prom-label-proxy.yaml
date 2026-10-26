@@ -1,0 +1,93 @@
+# Tenant metrics: one label-enforcing proxy per tenant in front of the Thanos Querier.
+# The proxy rewrites every query so that `namespace` can only be one of the tenant's three namespaces. The values are
+# fixed in the arguments: a client cannot choose or replace them. A tenant's Grafana organization gets a Prometheus
+# data source that points here (base/kube-prometheus-stack/values.yaml); tenants never reach the Querier itself.
+# Series without a `namespace` label (nodes, cluster components) are invisible through the proxy.
+# A new tenant namespace needs one more -label-value here (tenants have a quota of 3).
+# Design, tests: docs/tenant-observability.md, tests/tenant-observability.sh.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prom-label-proxy-zeedlogic
+  namespace: monitoring
+  labels: {app.kubernetes.io/name: prom-label-proxy, app.kubernetes.io/instance: zeedlogic, app.kubernetes.io/part-of: tenant-observability}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: prom-label-proxy, app.kubernetes.io/instance: zeedlogic}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: prom-label-proxy, app.kubernetes.io/instance: zeedlogic, app.kubernetes.io/part-of: tenant-observability}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 65534, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: proxy
+          image: quay.io/prometheuscommunity/prom-label-proxy:v0.15.1
+          args:
+            - -insecure-listen-address=0.0.0.0:8080
+            - -upstream=http://thanos-query.monitoring.svc.cluster.local:10902
+            - -label=namespace
+            - -label-value=zeedlogic-dev
+            - -label-value=zeedlogic-stg
+            - -label-value=zeedlogic-prod
+            - -enable-label-apis
+          ports: [{name: http, containerPort: 8080}]
+          readinessProbe: {tcpSocket: {port: http}, periodSeconds: 10}
+          resources:
+            requests: {cpu: 10m, memory: 24Mi}
+            limits: {memory: 96Mi}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prom-label-proxy-zeedlogic
+  namespace: monitoring
+  labels: {app.kubernetes.io/name: prom-label-proxy, app.kubernetes.io/instance: zeedlogic, app.kubernetes.io/part-of: tenant-observability}
+spec:
+  selector: {app.kubernetes.io/name: prom-label-proxy, app.kubernetes.io/instance: zeedlogic}
+  ports: [{name: http, port: 8080, targetPort: http}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prom-label-proxy-jodywan
+  namespace: monitoring
+  labels: {app.kubernetes.io/name: prom-label-proxy, app.kubernetes.io/instance: jodywan, app.kubernetes.io/part-of: tenant-observability}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: prom-label-proxy, app.kubernetes.io/instance: jodywan}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: prom-label-proxy, app.kubernetes.io/instance: jodywan, app.kubernetes.io/part-of: tenant-observability}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 65534, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: proxy
+          image: quay.io/prometheuscommunity/prom-label-proxy:v0.15.1
+          args:
+            - -insecure-listen-address=0.0.0.0:8080
+            - -upstream=http://thanos-query.monitoring.svc.cluster.local:10902
+            - -label=namespace
+            - -label-value=jodywan-dev
+            - -label-value=jodywan-stg
+            - -label-value=jodywan-prod
+            - -enable-label-apis
+          ports: [{name: http, containerPort: 8080}]
+          readinessProbe: {tcpSocket: {port: http}, periodSeconds: 10}
+          resources:
+            requests: {cpu: 10m, memory: 24Mi}
+            limits: {memory: 96Mi}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prom-label-proxy-jodywan
+  namespace: monitoring
+  labels: {app.kubernetes.io/name: prom-label-proxy, app.kubernetes.io/instance: jodywan, app.kubernetes.io/part-of: tenant-observability}
+spec:
+  selector: {app.kubernetes.io/name: prom-label-proxy, app.kubernetes.io/instance: jodywan}
+  ports: [{name: http, port: 8080, targetPort: http}]

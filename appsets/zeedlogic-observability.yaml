@@ -1,0 +1,39 @@
+# ZeedLogic observability wiring for the tenant environments (layer 1): the scrape objects the platform owns because tenants
+# cannot create them (ServiceMonitor, PodMonitor), and the network rule that lets zeedlogic-dev send traces to Jaeger.
+# Plan, risks and test: docs/zeedlogic-observability.md, tests/zeedlogic-observability.sh.
+# Needs kube-prometheus-stack (the CRDs) first. Auto-sync ON, prune OFF.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: zeedlogic-observability
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'zeedlogic-observability'
+    spec:
+      project: platform
+      source:
+        repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+        targetRevision: main
+        path: overlays/{{ .cluster }}/zeedlogic-observability
+      destination:
+        server: '{{ .server }}'
+        namespace: monitoring
+      syncPolicy:
+        automated:
+          prune: false
+          selfHeal: false
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}
+        syncOptions:
+          - ServerSideApply=true
+          - SkipDryRunOnMissingResource=true
+          - PruneLast=true

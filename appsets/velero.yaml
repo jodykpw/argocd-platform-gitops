@@ -1,0 +1,59 @@
+# Velero (layer 1): backs up Kubernetes objects (manifests, CRDs, Secrets) to the S3 bucket `velero` in the Garage
+# on docker-2 (docs/backup-target.md). Volume DATA is not backed up by Velero (Longhorn backup, separate step).
+# Auto-sync ON (tests/velero.sh passed, 15/15), prune OFF.
+# Before the first sync: apply bootstrap/platform-project.yaml (vmware-tanzu chart repo in sourceRepos) and create
+# the Secret `velero-s3` in namespace `velero` by hand (docs/velero.md).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: velero
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'velero'
+    spec:
+      project: platform
+      sources:
+        - repoURL: https://vmware-tanzu.github.io/helm-charts
+          chart: velero
+          targetRevision: "12.2.1"        # Velero 1.18.2
+          helm:
+            releaseName: velero
+            valueFiles:
+              - $values/base/velero/values.yaml
+              - $values/overlays/{{ .cluster }}/velero/values.yaml
+        - repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: '{{ .server }}'
+        namespace: velero
+      ignoreDifferences:
+        # Reloader writes the time and cause of its last restart into the pod template (docs/reloader.md).
+        - group: apps
+          kind: Deployment
+          name: velero
+          jqPathExpressions:
+            - .spec.template.metadata.annotations."reloader.stakater.com/last-reloaded-from"
+      syncPolicy:
+        automated:
+          prune: false
+          selfHeal: false
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - PruneLast=true
+          - RespectIgnoreDifferences=true
+        managedNamespaceMetadata:
+          labels:
+            pod-security.kubernetes.io/enforce: baseline

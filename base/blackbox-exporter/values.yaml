@@ -1,0 +1,38 @@
+# blackbox-exporter (chart prometheus-community/prometheus-blackbox-exporter 11.20.0, app v0.29.0).
+# Deployed into the namespace monitoring next to Prometheus. Plan and test: docs/blackbox-exporter.md,
+# tests/blackbox-exporter.sh. Checked against `helm show values` and `helm template`.
+
+fullnameOverride: blackbox-exporter     # Service blackbox-exporter:9115, used by the Probe objects below
+
+# Only the monitoring namespace may use the exporter: it will fetch any URL it is asked to, so it must not be open
+# to tenant pods (it would be a way to reach internal addresses).
+networkPolicy:
+  enabled: true
+  allowMonitoringNamespace: true
+  monitoringNamespaceName: monitoring
+
+# Metrics of the exporter itself (the probe results come from the Probe objects below).
+serviceMonitor:
+  enabled: true
+  selfMonitor:
+    enabled: true
+
+config:
+  modules:
+    http_2xx:                       # URL answers 2xx (redirects are followed) within 10 s, over a valid certificate
+      prober: http
+      timeout: 10s
+      http:
+        valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+        follow_redirects: true
+        preferred_ip_protocol: "ip4"
+        fail_if_not_ssl: true
+    tcp_connect:                    # the port accepts a connection
+      prober: tcp
+      timeout: 5s
+      tcp:
+        preferred_ip_protocol: "ip4"
+
+# Probes (Probe objects) are cluster specific: overlays/<cluster>/blackbox-exporter/values.yaml.
+# Prometheus picks them up because probeSelectorNilUsesHelmValues is false in the stack's values.
+extraManifests: []

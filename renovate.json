@@ -1,0 +1,115 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "platform-gitops: Renovate opens merge requests for new chart and image versions. Nothing is merged automatically. Why and how: docs/renovate.md",
+  "extends": [
+    "config:recommended"
+  ],
+  "timezone": "Europe/London",
+  "schedule": [
+    "before 7am on monday"
+  ],
+  "labels": [
+    "renovate"
+  ],
+  "prConcurrentLimit": 6,
+  "prHourlyLimit": 4,
+  "dependencyDashboard": true,
+  "dependencyDashboardTitle": "Renovate: dependency updates (platform-gitops)",
+  "commitMessagePrefix": "chore(deps):",
+  "enabledManagers": [
+    "custom.regex"
+  ],
+  "customManagers": [
+    {
+      "description": "Helm chart pins in the Argo CD ApplicationSets: repoURL, chart and targetRevision on consecutive lines (comment lines in between are allowed)",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^appsets\\/.*\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "repoURL:\\s*(?<registryUrl>https?://\\S+?)/?\\s*\\n\\s*chart:\\s*(?<depName>\\S+)\\s*\\n(?:\\s*#[^\\n]*\\n)*\\s*targetRevision:\\s*\"?(?<currentValue>[0-9][^\"\\s#]*)\"?"
+      ],
+      "datasourceTemplate": "helm"
+    },
+    {
+      "description": "Garage's Helm chart is read from its git repository tag (repoURL, targetRevision, path)",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^appsets\\/storage-garage\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "repoURL:\\s*(?<packageName>https://git\\.deuxfleurs\\.fr/\\S+?\\.git)\\s*\\n\\s*targetRevision:\\s*(?<currentValue>v[0-9][^\\s#]*)"
+      ],
+      "depNameTemplate": "garage",
+      "datasourceTemplate": "git-tags"
+    },
+    {
+      "description": "Container images written as `image: name:tag` in values, manifests and the test scripts' heredocs",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^(base|overlays|tenant-baseline|tenant-observability|tenant-gitops)\\/.*\\.ya?ml$/",
+        "/^tests\\/.*\\.sh$/"
+      ],
+      "matchStrings": [
+        "image:\\s*[\"']?(?<depName>[a-z0-9][a-z0-9._/-]*):(?<currentValue>v?[0-9][A-Za-z0-9._-]*)[\"']?"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "description": "Helper images of the test scripts: IMG=\"${IMG:-name:tag}\" and IMAGE=\"${IMAGE:-name:tag}\"",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^tests\\/.*\\.sh$/"
+      ],
+      "matchStrings": [
+        "(?:IMG|IMAGE)=\"\\$\\{(?:IMG|IMAGE):-(?<depName>[a-z0-9][a-z0-9._/-]*):(?<currentValue>v?[0-9][A-Za-z0-9._-]*)\\}\""
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Majors are never proposed on their own: they need reading release notes (CRDs, flags, values)",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Jaeger chart 4.14 (Jaeger 2.21) removed the legacy query API that Grafana's Jaeger data source uses: stay on 4.13.x until Grafana supports /api/v3 (docs/jaeger.md)",
+      "matchDepNames": [
+        "jaeger"
+      ],
+      "allowedVersions": "<4.14.0"
+    },
+    {
+      "description": "Platform charts that restart something or hold data move one minor at a time, reviewed (appsets comments)",
+      "matchDepNames": [
+        "longhorn",
+        "kube-prometheus-stack",
+        "loki",
+        "thanos",
+        "velero",
+        "keda",
+        "cloudnative-pg"
+      ],
+      "separateMultipleMinor": true,
+      "separateMinorPatch": true
+    },
+    {
+      "description": "Velero server and its AWS plugin are paired: look at the compatibility table before merging (docs/velero.md)",
+      "matchDepNames": [
+        "velero",
+        "velero/velero-plugin-for-aws"
+      ],
+      "groupName": "velero and its plugin"
+    },
+    {
+      "description": "Throwaway helper images in the test scripts are low risk; one merge request for all of them",
+      "matchFileNames": [
+        "tests/**"
+      ],
+      "groupName": "test helper images"
+    }
+  ]
+}

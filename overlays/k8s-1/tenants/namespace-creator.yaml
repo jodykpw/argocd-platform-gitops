@@ -1,0 +1,126 @@
+# Creates the dev, stg and prod namespaces of every tenant (Argo CD Sync hook, wave 1: after the Tenants, before the
+# RoleBindings in developers-edit.yaml, wave 2). Capsule only lets a tenant owner create a tenant namespace and Argo CD's
+# controller is not one, so the Job impersonates an owner of each tenant, exactly as the manual script did.
+# Idempotent: an existing namespace is skipped.
+#
+# Privilege: the ServiceAccount can impersonate ONLY the user `platform-bootstrap` and ONLY the groups below
+# (resourceNames). It cannot impersonate anyone else, so it cannot become cluster-admin. An impersonated owner can create
+# namespaces only inside its own tenant (Capsule enforces the <tenant>- prefix and the quota).
+# To add a tenant: add its owners group to the ClusterRole, the tenant to the loop and the Tenant manifest; merge.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tenant-namespace-creator
+  namespace: capsule-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tenant-namespace-creator
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get]
+  - apiGroups: [capsule.clastix.io]
+    resources: [tenants]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [users]
+    verbs: [impersonate]
+    resourceNames: [platform-bootstrap]
+  - apiGroups: [""]
+    resources: [groups]
+    verbs: [impersonate]
+    resourceNames:
+      - system:authenticated
+      - "oidc:zeedlogic-owners"
+      - "oidc:jodywan-owners"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tenant-namespace-creator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tenant-namespace-creator
+subjects:
+  - kind: ServiceAccount
+    name: tenant-namespace-creator
+    namespace: capsule-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: create-tenant-namespaces-script
+  namespace: capsule-system
+data:
+  # The script is a normal (compared) resource on purpose: Argo CD auto-sync starts only when something it compares has
+  # changed, and a hook Job is not compared. Editing the script changes this ConfigMap, the app becomes OutOfSync,
+  # auto-sync runs and the hook Job below runs again with the new script.
+  create.sh: |
+    set -eu
+    # kubectl ignores the in-cluster credentials as soon as --as is used (it falls back to localhost:8080),
+    # so build a kubeconfig from the ServiceAccount token. Found by the create-path test:
+    # while every namespace existed the Job never reached the create call.
+    SA=/var/run/secrets/kubernetes.io/serviceaccount
+    export KUBECONFIG=/tmp/kubeconfig
+    kubectl config set-cluster in --server="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}" \
+      --certificate-authority=$SA/ca.crt >/dev/null
+    kubectl config set-credentials sa --token="$(cat $SA/token)" >/dev/null
+    kubectl config set-context in --cluster=in --user=sa >/dev/null
+    kubectl config use-context in >/dev/null
+    for tenant in zeedlogic jodywan; do
+      kubectl get tenant "$tenant" >/dev/null
+      for env in dev stg prod; do
+        ns="$tenant-$env"
+        if kubectl get namespace "$ns" >/dev/null 2>&1; then
+          echo "exists  $ns"
+        else
+          kubectl create namespace "$ns" \
+            --as=platform-bootstrap --as-group="oidc:$tenant-owners" --as-group=system:authenticated
+          echo "created $ns"
+        fi
+      done
+    done
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: create-tenant-namespaces
+  namespace: capsule-system
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      serviceAccountName: tenant-namespace-creator
+      restartPolicy: Never
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: script
+          configMap:
+            name: create-tenant-namespaces-script
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: create
+          image: docker.io/clastix/kubectl:v1.37     # the image the Capsule chart's own Jobs use
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: script
+              mountPath: /scripts
+          command: ["/bin/sh", "/scripts/create.sh"]

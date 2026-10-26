@@ -1,0 +1,43 @@
+# A tenant Rollout may not use traffic routing, analysis or experiments.
+# Traffic routing: the plugin config names an HTTPRoute AND its namespace, and the controller has update rights on
+# HTTPRoutes cluster wide. A tenant Rollout could point it at a platform route (for example the Grafana route) and
+# rewrite its backends. Tenants publish with an Ingress and have no HTTPRoute, so nothing is lost: their Rollouts still
+# do canary (replica weighted) and blue-green (service switch) without any router.
+# Analysis and experiments: the `web` and `prometheus` providers make the controller call any URL (docs/keda.md has the
+# same reasoning); `job` runs arbitrary Jobs. Lift this with a policy that allows only a tenant's own metrics proxy.
+# Test: tests/argo-rollouts.sh. Remove this file only together with a replacement.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: tenant-rollout-no-routing-or-analysis
+  labels: {app.kubernetes.io/part-of: tenant-guardrails}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["argoproj.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["rollouts"]
+  validations:
+    - expression: "!has(object.spec.strategy) || !has(object.spec.strategy.canary) || !has(object.spec.strategy.canary.trafficRouting)"
+      message: "tenant Rollouts must not use trafficRouting (the controller could be pointed at a platform HTTPRoute)"
+    - expression: "!has(object.spec.strategy) || !has(object.spec.strategy.canary) || (!has(object.spec.strategy.canary.analysis) && (!has(object.spec.strategy.canary.steps) || object.spec.strategy.canary.steps.all(s, !has(s.analysis) && !has(s.experiment))))"
+      message: "tenant Rollouts must not use analysis or experiments"
+    - expression: "!has(object.spec.strategy) || !has(object.spec.strategy.blueGreen) || (!has(object.spec.strategy.blueGreen.prePromotionAnalysis) && !has(object.spec.strategy.blueGreen.postPromotionAnalysis))"
+      message: "tenant Rollouts must not use analysis"
+    - expression: "!has(object.spec.analysis)"
+      message: "tenant Rollouts must not use analysis"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: tenant-rollout-no-routing-or-analysis
+  labels: {app.kubernetes.io/part-of: tenant-guardrails}
+spec:
+  policyName: tenant-rollout-no-routing-or-analysis
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        - {key: capsule.clastix.io/tenant, operator: Exists}

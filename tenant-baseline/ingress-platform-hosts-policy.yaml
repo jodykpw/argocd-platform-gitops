@@ -1,0 +1,44 @@
+# Tenants may publish with any hostname (no hostname patterns), EXCEPT the platform's own.
+# Traefik serves tenant Ingresses and the platform's routes from the same entry point, so a tenant Ingress for
+# grafana-k8s.jodywan.com or argocd.jodywan.com could intercept or phish a platform login. Also refused: a rule
+# without a host and a defaultBackend, which would catch traffic that belongs to nobody.
+# The list is the hostnames of the HTTPRoutes and Ingresses outside tenant namespaces; add a platform hostname here
+# when one is published. Test: tests/tenant-guardrails.sh. Remove this file to allow every name.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: tenant-ingress-not-platform-hosts
+  labels: {app.kubernetes.io/part-of: tenant-guardrails}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["networking.k8s.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["ingresses"]
+  variables:
+    - name: platformHosts
+      expression: "['argocd.jodywan.com', 'garage-k8s.jodywan.com', 'grafana-k8s.jodywan.com', 'headlamp.jodywan.com']"
+  validations:
+    - expression: "!has(object.spec.defaultBackend)"
+      message: "tenant Ingresses must not set a defaultBackend (it would catch traffic for every hostname)"
+    - expression: "!has(object.spec.rules) || object.spec.rules.all(r, has(r.host) && r.host != '')"
+      message: "every rule of a tenant Ingress needs a host (a rule without one catches traffic that belongs to others)"
+    - expression: "!has(object.spec.rules) || object.spec.rules.all(r, !has(r.host) || !(r.host in variables.platformHosts))"
+      message: "this hostname belongs to the platform and cannot be used by a tenant Ingress"
+    - expression: "!has(object.spec.tls) || object.spec.tls.all(t, !has(t.hosts) || t.hosts.all(h, !(h in variables.platformHosts)))"
+      message: "this hostname belongs to the platform and cannot be used by a tenant Ingress"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: tenant-ingress-not-platform-hosts
+  labels: {app.kubernetes.io/part-of: tenant-guardrails}
+spec:
+  policyName: tenant-ingress-not-platform-hosts
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        - {key: capsule.clastix.io/tenant, operator: Exists}

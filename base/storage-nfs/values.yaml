@@ -1,0 +1,4 @@
+strategyType: Recreate
+
+leaderElection:
+  enabled: true

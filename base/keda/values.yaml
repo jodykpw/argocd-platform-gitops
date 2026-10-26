@@ -1,0 +1,36 @@
+# KEDA (chart kedacore/keda 2.21.0, app 2.21.0). Checked against `helm show values` and `helm template`.
+# Plan and test: docs/keda.md, tests/keda.sh.
+
+# CRDs come with the chart (ScaledObject, ScaledJob, TriggerAuthentication, ClusterTriggerAuthentication, CloudEventSource).
+# Server-side apply is on in the Argo CD app (they are large).
+crds:
+  install: true
+
+# Watch every namespace (the platform's, and tenants' later).
+watchNamespace: ""
+
+rbac:
+  create: true
+  # Tenants get NO KEDA objects: ScaledObject, ScaledJob and TriggerAuthentication are not added to the default
+  # view/edit/admin roles. A ScaledObject makes the KEDA operator (a cluster component with its own network access)
+  # call whatever address its trigger names, so enabling it for tenants is a decision with guardrails (docs/keda.md).
+  aggregateToDefaultRoles: false
+
+# Metrics for Prometheus (PodMonitors: the stack accepts monitors from any namespace).
+prometheus:
+  operator:
+    enabled: true
+    podMonitor:
+      enabled: true
+  metricServer:
+    enabled: true
+    podMonitor:
+      enabled: true
+
+# Admission webhook (validates ScaledObjects). failurePolicy stays Ignore (chart default): if the webhook is down,
+# creating a ScaledObject is not blocked.
+webhooks:
+  enabled: true
+  failurePolicy: Ignore
+
+asciiArt: false

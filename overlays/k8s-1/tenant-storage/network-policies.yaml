@@ -1,0 +1,80 @@
+# Lets the tenant namespace jodywan-dev reach the platform's Garage S3 API, and nothing else of Garage. A tenant namespace
+# cannot reach a platform service on its own (default-deny egress there, `refuse-tenant-ingress` in `garage`), so a tenant that
+# needs object storage is a platform decision with a rule on BOTH sides, as for the databases namespace (docs/tenant-storage.md).
+# Policies only allow and they add up, so this does not weaken `refuse-tenant-ingress` for any other namespace.
+# Only 3900 (the S3 API). The admin API (3903), the cluster RPC (3901) and the web endpoint (3902) stay closed, and the S3 API
+# itself needs a signed request from a key, which only reaches the buckets it was granted.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-jodywan-dev-s3
+  namespace: garage
+  labels: {app.kubernetes.io/part-of: tenant-storage}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: garage}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: jodywan-dev}
+      ports:
+        - {port: 3900, protocol: TCP}
+---
+# The tenant side: the baseline closes egress, so the namespace needs a rule to leave for Garage's S3 port. The Calico
+# tenant-egress-guard does not block it (it denies private ranges except the cluster's own pod and service networks).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-to-s3
+  namespace: jodywan-dev
+  labels: {app.kubernetes.io/part-of: tenant-storage}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: garage}
+          podSelector:
+            matchLabels: {app.kubernetes.io/name: garage}
+      ports:
+        - {port: 3900, protocol: TCP}
+---
+# The same for zeedlogic-dev: its namespace may reach the Garage S3 API (3900) and nothing else of Garage.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-zeedlogic-dev-s3
+  namespace: garage
+  labels: {app.kubernetes.io/part-of: tenant-storage}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: garage}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: zeedlogic-dev}
+      ports:
+        - {port: 3900, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-to-s3
+  namespace: zeedlogic-dev
+  labels: {app.kubernetes.io/part-of: tenant-storage}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: garage}
+          podSelector:
+            matchLabels: {app.kubernetes.io/name: garage}
+      ports:
+        - {port: 3900, protocol: TCP}
+

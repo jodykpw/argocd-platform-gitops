@@ -1,0 +1,11 @@
+# IMPORTANT: the chart binds the Headlamp ServiceAccount to cluster-admin by default. Turn it off:
+# users sign in with OIDC and Headlamp uses THEIR token, so each person sees only what their own RBAC allows.
+clusterRoleBinding:
+  create: false
+
+service:
+  type: ClusterIP
+
+# Reloader (docs/reloader.md): restart Headlamp when the OIDC Secret it reads as environment variables changes.
+deploymentAnnotations:
+  secret.reloader.stakater.com/reload: "headlamp-oidc"

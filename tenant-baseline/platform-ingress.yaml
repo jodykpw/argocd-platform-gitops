@@ -1,0 +1,335 @@
+# Platform side of the tenant network gate: refuse traffic that comes from tenant pods.
+#
+# Tenant namespaces are closed by the baseline (network-baseline.yaml), but a tenant owner may add NetworkPolicies of
+# their own (for example to open egress), so the platform services must also refuse tenant pods themselves.
+# NetworkPolicies only allow, so "everyone except tenants" is written as an allow list of:
+#   - pods in namespaces that carry no capsule.clastix.io/tenant label (the platform), and
+#   - every other source address (LAN hosts, nodes, the API server, load balancers) except the pod network,
+#     which is where tenant pods live (the platform pods are matched by the first rule).
+# Only the namespaces and pods that have no narrower policy get this (the `grafana` namespace): Loki, Jaeger, Argo CD, Longhorn and the
+# Thanos Querier and blackbox-exporter already allow specific sources only, and adding a wider policy would widen them.
+# Traefik is the public entry point, so tenant pods may reach its web and websecure ports (and nothing else of it).
+# The node tunnel addresses are listed because the API server reaches pods from them (see below).
+# Not covered (documented in docs/tenant-network.md): Argo CD server (SSO login, by design open). (The leftover namespace `demo` was deleted.)
+# Test: tests/tenant-network.sh section B.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: refuse-tenant-ingress
+  namespace: garage
+  labels:
+    app.kubernetes.io/part-of: tenant-network-gate
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchExpressions:
+              - {key: capsule.clastix.io/tenant, operator: DoesNotExist}
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.233.64.0/18]
+        # node tunnel addresses (Calico VXLAN, inside the pod network): the API server, webhooks and the pod proxy
+        # reach pods from these. Generated from `kubectl get nodes` annotation projectcalico.org/IPv4VXLANTunnelAddr;
+        # tests/tenant-network.sh checks they are still current.
+        - ipBlock:
+            cidr: 10.233.108.128/32     # control-plane-1
+        - ipBlock:
+            cidr: 10.233.101.192/32     # control-plane-2
+        - ipBlock:
+            cidr: 10.233.89.0/32     # control-plane-3
+        - ipBlock:
+            cidr: 10.233.84.192/32     # worker-node-1
+        - ipBlock:
+            cidr: 10.233.83.128/32     # worker-node-2
+        - ipBlock:
+            cidr: 10.233.108.192/32     # worker-node-3
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: refuse-tenant-ingress
+  namespace: headlamp
+  labels:
+    app.kubernetes.io/part-of: tenant-network-gate
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchExpressions:
+              - {key: capsule.clastix.io/tenant, operator: DoesNotExist}
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.233.64.0/18]
+        - ipBlock:
+            cidr: 10.233.108.128/32     # control-plane-1
+        - ipBlock:
+            cidr: 10.233.101.192/32     # control-plane-2
+        - ipBlock:
+            cidr: 10.233.89.0/32     # control-plane-3
+        - ipBlock:
+            cidr: 10.233.84.192/32     # worker-node-1
+        - ipBlock:
+            cidr: 10.233.83.128/32     # worker-node-2
+        - ipBlock:
+            cidr: 10.233.108.192/32     # worker-node-3
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: refuse-tenant-ingress
+  namespace: argo-rollouts
+  labels:
+    app.kubernetes.io/part-of: tenant-network-gate
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchExpressions:
+              - {key: capsule.clastix.io/tenant, operator: DoesNotExist}
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.233.64.0/18]
+        - ipBlock:
+            cidr: 10.233.108.128/32     # control-plane-1
+        - ipBlock:
+            cidr: 10.233.101.192/32     # control-plane-2
+        - ipBlock:
+            cidr: 10.233.89.0/32     # control-plane-3
+        - ipBlock:
+            cidr: 10.233.84.192/32     # worker-node-1
+        - ipBlock:
+            cidr: 10.233.83.128/32     # worker-node-2
+        - ipBlock:
+            cidr: 10.233.108.192/32     # worker-node-3
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: refuse-tenant-ingress
+  namespace: external-secrets
+  labels:
+    app.kubernetes.io/part-of: tenant-network-gate
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchExpressions:
+              - {key: capsule.clastix.io/tenant, operator: DoesNotExist}
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.233.64.0/18]
+        - ipBlock:
+            cidr: 10.233.108.128/32     # control-plane-1
+        - ipBlock:
+            cidr: 10.233.101.192/32     # control-plane-2
+        - ipBlock:
+            cidr: 10.233.89.0/32     # control-plane-3
+        - ipBlock:
+            cidr: 10.233.84.192/32     # worker-node-1
+        - ipBlock:
+            cidr: 10.233.83.128/32     # worker-node-2
+        - ipBlock:
+            cidr: 10.233.108.192/32     # worker-node-3
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: refuse-tenant-ingress
+  namespace: grafana
+  labels:
+    app.kubernetes.io/part-of: tenant-network-gate
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchExpressions:
+              - {key: capsule.clastix.io/tenant, operator: DoesNotExist}
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.233.64.0/18]
+        - ipBlock:
+            cidr: 10.233.108.128/32     # control-plane-1
+        - ipBlock:
+            cidr: 10.233.101.192/32     # control-plane-2
+        - ipBlock:
+            cidr: 10.233.89.0/32     # control-plane-3
+        - ipBlock:
+            cidr: 10.233.84.192/32     # worker-node-1
+        - ipBlock:
+            cidr: 10.233.83.128/32     # worker-node-2
+        - ipBlock:
+            cidr: 10.233.108.192/32     # worker-node-3
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: refuse-tenant-ingress
+  namespace: velero
+  labels:
+    app.kubernetes.io/part-of: tenant-network-gate
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchExpressions:
+              - {key: capsule.clastix.io/tenant, operator: DoesNotExist}
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.233.64.0/18]
+        - ipBlock:
+            cidr: 10.233.108.128/32     # control-plane-1
+        - ipBlock:
+            cidr: 10.233.101.192/32     # control-plane-2
+        - ipBlock:
+            cidr: 10.233.89.0/32     # control-plane-3
+        - ipBlock:
+            cidr: 10.233.84.192/32     # worker-node-1
+        - ipBlock:
+            cidr: 10.233.83.128/32     # worker-node-2
+        - ipBlock:
+            cidr: 10.233.108.192/32     # worker-node-3
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: refuse-tenant-ingress
+  namespace: nfs-provisioner
+  labels:
+    app.kubernetes.io/part-of: tenant-network-gate
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchExpressions:
+              - {key: capsule.clastix.io/tenant, operator: DoesNotExist}
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.233.64.0/18]
+        - ipBlock:
+            cidr: 10.233.108.128/32     # control-plane-1
+        - ipBlock:
+            cidr: 10.233.101.192/32     # control-plane-2
+        - ipBlock:
+            cidr: 10.233.89.0/32     # control-plane-3
+        - ipBlock:
+            cidr: 10.233.84.192/32     # worker-node-1
+        - ipBlock:
+            cidr: 10.233.83.128/32     # worker-node-2
+        - ipBlock:
+            cidr: 10.233.108.192/32     # worker-node-3
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: refuse-tenant-ingress
+  namespace: fluent-bit
+  labels:
+    app.kubernetes.io/part-of: tenant-network-gate
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchExpressions:
+              - {key: capsule.clastix.io/tenant, operator: DoesNotExist}
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.233.64.0/18]
+        - ipBlock:
+            cidr: 10.233.108.128/32     # control-plane-1
+        - ipBlock:
+            cidr: 10.233.101.192/32     # control-plane-2
+        - ipBlock:
+            cidr: 10.233.89.0/32     # control-plane-3
+        - ipBlock:
+            cidr: 10.233.84.192/32     # worker-node-1
+        - ipBlock:
+            cidr: 10.233.83.128/32     # worker-node-2
+        - ipBlock:
+            cidr: 10.233.108.192/32     # worker-node-3
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: refuse-tenant-ingress
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: tenant-network-gate
+spec:
+  podSelector:
+    matchExpressions:
+      # the Thanos Querier and blackbox-exporter have their own narrower policies
+      - {key: app.kubernetes.io/component, operator: NotIn, values: [query]}
+      - {key: app.kubernetes.io/name, operator: NotIn, values: [prometheus-blackbox-exporter]}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchExpressions:
+              - {key: capsule.clastix.io/tenant, operator: DoesNotExist}
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.233.64.0/18]
+        - ipBlock:
+            cidr: 10.233.108.128/32     # control-plane-1
+        - ipBlock:
+            cidr: 10.233.101.192/32     # control-plane-2
+        - ipBlock:
+            cidr: 10.233.89.0/32     # control-plane-3
+        - ipBlock:
+            cidr: 10.233.84.192/32     # worker-node-1
+        - ipBlock:
+            cidr: 10.233.83.128/32     # worker-node-2
+        - ipBlock:
+            cidr: 10.233.108.192/32     # worker-node-3
+---
+# Traefik: tenant pods may use the entry points (web 8000, websecure 8443), not the API/dashboard (8080) or metrics (9100).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: refuse-tenant-ingress-except-entrypoints
+  namespace: traefik
+  labels:
+    app.kubernetes.io/part-of: tenant-network-gate
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - {protocol: TCP, port: 8000}
+        - {protocol: TCP, port: 8443}
+    - from:
+        - namespaceSelector:
+            matchExpressions:
+              - {key: capsule.clastix.io/tenant, operator: DoesNotExist}
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.233.64.0/18]
+        - ipBlock:
+            cidr: 10.233.108.128/32     # control-plane-1
+        - ipBlock:
+            cidr: 10.233.101.192/32     # control-plane-2
+        - ipBlock:
+            cidr: 10.233.89.0/32     # control-plane-3
+        - ipBlock:
+            cidr: 10.233.84.192/32     # worker-node-1
+        - ipBlock:
+            cidr: 10.233.83.128/32     # worker-node-2
+        - ipBlock:
+            cidr: 10.233.108.192/32     # worker-node-3

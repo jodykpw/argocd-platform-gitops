@@ -1,0 +1,35 @@
+# Tenant egress guard (Calico GlobalNetworkPolicy). A tenant owner may add NetworkPolicies of their own and open
+# egress; this denies, in front of them and where an owner cannot edit it, the destinations a tenant pod must never
+# reach: the nodes and the LAN (kubelet 10250, node-exporter 9100, etcd metrics 2381, scheduler 10259, TrueNAS,
+# docker-2 ...) and the node tunnel addresses. It only DENIES: anything it does not match continues to the
+# Kubernetes NetworkPolicies as before (tenant baseline, platform ingress limits), so it cannot open anything.
+# Cluster-internal addresses (pod CIDR 10.233.64.0/18 and service CIDR 10.233.0.0/18) and the NodeLocal DNS address
+# are not matched here: pod to pod and DNS are decided by the Kubernetes policies.
+# Test: tests/tenant-network.sh section B (kubelet, node-exporter, etcd metrics, scheduler). Design: docs/tenant-network.md.
+# Node tunnel addresses: same list as tenant-baseline/platform-ingress.yaml; a rebuilt node has a new one.
+apiVersion: crd.projectcalico.org/v1
+kind: GlobalNetworkPolicy
+metadata:
+  name: tenant-egress-guard
+  labels: {app.kubernetes.io/part-of: tenant-network-gate}
+spec:
+  order: 10
+  selector: all()
+  namespaceSelector: has(capsule.clastix.io/tenant)
+  types: [Egress]
+  egress:
+    # the nodes' Calico VXLAN tunnel addresses (inside the pod CIDR, so the rule below does not cover them)
+    - action: Deny
+      destination:
+        nets:
+          - 10.233.101.192/32
+          - 10.233.108.128/32
+          - 10.233.108.192/32
+          - 10.233.83.128/32
+          - 10.233.84.192/32
+          - 10.233.89.0/32
+    # every private and link-local range except the cluster's own networks and the NodeLocal DNS address
+    - action: Deny
+      destination:
+        nets: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16]
+        notNets: [10.233.0.0/16, 169.254.25.10/32]

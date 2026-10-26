@@ -1,0 +1,97 @@
+# Fluent Bit on k8s-1: the log pipeline of this cluster. Node paths (containerd, /var/log/containers), the Capsule
+# tenant routing (Lua script and filters), the Loki output with the cluster label, sizing and placement.
+# The base keeps only the service section, the custom parsers and the chart switches (docs/repo-layout.md).
+priorityClassName: addons-critical
+# Runs on every node, control planes included (they carry the NoSchedule taint).
+tolerations:
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+resources:
+  requests:
+    cpu: 25m
+    memory: 64Mi
+  limits:
+    memory: 192Mi
+# containerd on these nodes: /var/log/containers links into /var/log/pods, nothing under /var/lib/docker.
+# /var/lib/fluent-bit keeps the read offsets so a restart neither re-sends nor skips lines.
+daemonSetVolumes:
+  - name: varlog
+    hostPath:
+      path: /var/log
+  - name: state
+    hostPath:
+      path: /var/lib/fluent-bit
+      type: DirectoryOrCreate
+  - name: etcmachineid
+    hostPath:
+      path: /etc/machine-id
+      type: File
+daemonSetVolumeMounts:
+  - name: varlog
+    mountPath: /var/log
+    readOnly: true
+  - name: state
+    mountPath: /var/lib/fluent-bit
+  - name: etcmachineid
+    mountPath: /etc/machine-id
+    readOnly: true
+# Sets the Loki tenant (record key tenant_id) from the Capsule tenant label of the pod's namespace.
+# Everything else (kube-system, argocd, longhorn-system, ...) goes to the `platform` tenant.
+# It always overwrites tenant_id, so a pod that logs {"tenant_id": "platform"} cannot choose its tenant.
+luaScripts:
+  tenant.lua: |
+    function set_tenant(tag, timestamp, record)
+      local tenant = "platform"
+      local ns = record["kubernetes_namespace"]
+      if type(ns) == "table" then
+        local labels = ns["labels"]
+        if type(labels) ~= "table" then labels = ns end
+        local t = labels["capsule.clastix.io/tenant"]
+        if type(t) == "string" and t ~= "" then tenant = t end
+      end
+      record["tenant_id"] = tenant
+      return 1, timestamp, record
+    end
+config:
+  inputs: |
+    [INPUT]
+        Name tail
+        Path /var/log/containers/*.log
+        Exclude_Path /var/log/containers/*_fluent-bit_*.log
+        multiline.parser cri
+        Tag kube.*
+        Refresh_Interval 5
+        DB /var/lib/fluent-bit/tail.db
+        Mem_Buf_Limit 5MB
+        Skip_Long_Lines On
+  filters: |
+    [FILTER]
+        Name kubernetes
+        Match kube.*
+        Merge_Log On
+        Merge_Log_Key log_processed
+        Keep_Log Off
+        K8S-Logging.Parser Off
+        K8S-Logging.Exclude On
+        Annotations Off
+        Namespace_Labels On
+
+    [FILTER]
+        Name lua
+        Match kube.*
+        script /fluent-bit/scripts/tenant.lua
+        call set_tenant
+  outputs: |
+    [OUTPUT]
+        Name loki
+        Match kube.*
+        Host loki.loki.svc.cluster.local
+        Port 3100
+        tenant_id platform
+        tenant_id_key tenant_id
+        labels job=fluent-bit,cluster=k8s-1,namespace=$kubernetes['namespace_name'],pod=$kubernetes['pod_name'],container=$kubernetes['container_name'],stream=$stream
+        remove_keys kubernetes,kubernetes_namespace,tenant_id,stream,_p
+        drop_single_key raw
+        line_format json
+        Retry_Limit False

@@ -1,0 +1,10 @@
+# Reloader on k8s-1: replicas, resources, retention and storage of this cluster. The base keeps only the generic settings
+# (docs/repo-layout.md).
+reloader:
+  deployment:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 48Mi
+      limits:
+        memory: 192Mi

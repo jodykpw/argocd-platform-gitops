@@ -1,0 +1,47 @@
+# Thanos (chart stevehipwell/thanos 1.24.1, app 0.42.4): Querier, Store Gateway and Compactor. The sidecar is
+# part of the Prometheus pod (base/kube-prometheus-stack/values.yaml). Settings common to every cluster.
+# Checked against `helm show values stevehipwell/thanos --version 1.24.1` and `helm template`.
+# Sizing, retention and storage are in overlays/<cluster>/thanos/values.yaml (docs/thanos.md).
+
+# The S3 settings live in the Secret thanos-objstore (key objstore.yml), created by hand; the sidecar uses the
+# same Secret. The chart must not create or template it.
+objstoreConfig:
+  create: false
+  name: thanos-objstore
+  key: objstore.yml
+
+# Prometheus runs one replica; the label is still declared so a second replica would be de-duplicated.
+additionalReplicaLabels:
+  - prometheus_replica
+
+# The sidecar in the Prometheus pod, found through the headless Service the stack creates.
+additionalEndpoints:
+  - dnssrv+_grpc._tcp.kube-prometheus-stack-thanos-discovery.monitoring.svc.cluster.local
+
+serviceMonitor:
+  enabled: true          # the CRD exists (kube-prometheus-stack)
+
+query:
+  enabled: true
+
+storeGateway:
+  enabled: true
+  # Reloader (docs/reloader.md): restart when the object store Secret changes (read at start).
+  podAnnotations:
+    secret.reloader.stakater.com/reload: "thanos-objstore"
+  persistence:
+    enabled: true
+    retainDeleted: true            # a removed app does not remove the volume
+    retainScaled: true
+
+compact:
+  enabled: true
+  # Reloader (docs/reloader.md): restart when the object store Secret changes (read at start).
+  podAnnotations:
+    secret.reloader.stakater.com/reload: "thanos-objstore"
+  deduplication:
+    enabled: false                 # one Prometheus replica, no overlapping blocks
+  persistence:
+    enabled: true
+    retainDeleted: true
+    retainScaled: true

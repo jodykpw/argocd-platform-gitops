@@ -1,0 +1,42 @@
+# Thanos on k8s-1. Bucket `thanos` in Garage (garage.garage.svc:3900, path style), quota 15 GiB, key thanos-key.
+# Everything is in the same namespace as the stack (monitoring).
+query:
+  replicas: 1
+  priorityClassName: addons-critical
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+storeGateway:
+  replicas: 1
+  priorityClassName: addons-critical
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      memory: 384Mi
+  persistence:
+    storageClass: longhorn
+    size: 3Gi
+  extraArgs:
+    - --index-cache-size=256MB     # keep inside the memory limit
+compact:
+  priorityClassName: addons-critical
+  resources:
+    requests:
+      cpu: 50m
+      memory: 320Mi
+    limits:
+      memory: 768Mi
+  persistence:
+    storageClass: longhorn
+    size: 8Gi                      # compaction work area: source blocks plus the compacted block
+  extraArgs:
+    - --retention.resolution-raw=7d
+    - --retention.resolution-5m=7d   # unused: downsampling is off, so no 5m or 1h blocks exist
+    - --retention.resolution-1h=7d
+    - --downsampling.disable
+    - --delete-delay=12h             # default 48h would keep two extra days in the bucket

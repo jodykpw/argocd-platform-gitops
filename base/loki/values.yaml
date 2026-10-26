@@ -1,0 +1,97 @@
+# Loki 7.3.0 (app 3.6.12), single-binary mode with filesystem storage. Settings common to every cluster.
+# Checked against `helm show values grafana/loki --version 7.3.0` and `helm template`.
+deploymentMode: SingleBinary
+
+loki:
+  # Multi-tenant: every push and query needs the header X-Scope-OrgID. Fluent Bit sets it from the Capsule
+  # tenant label of the namespace (tenant name, or `platform` for everything else). docs/loki.md.
+  auth_enabled: true
+  commonConfig:
+    path_prefix: /var/loki
+    replication_factor: 1
+  storage:
+    type: filesystem
+  schemaConfig:
+    configs:
+      - from: "2024-04-01"
+        store: tsdb
+        object_store: filesystem
+        schema: v13
+        index:
+          prefix: index_
+          period: 24h
+  limits_config:
+    reject_old_samples: true
+    reject_old_samples_max_age: 168h
+    max_cache_freshness_per_query: 10m
+    split_queries_by_interval: 15m
+    query_timeout: 300s
+    volume_enabled: true
+  compactor:
+    retention_enabled: true
+    delete_request_store: filesystem
+    working_directory: /var/loki/compactor
+  # Lets one query span several tenants (header X-Scope-OrgID: platform|zeedlogic|jodywan). Used by the
+  # platform-team data source in Grafana.
+  querier:
+    multi_tenant_queries_enabled: true
+  pattern_ingester:
+    enabled: false
+
+singleBinary:
+  persistence:
+    enabled: true
+    # never delete the volume because the StatefulSet or a sync went away (the class is Retain as well)
+    whenScaled: Retain
+    whenDeleted: Retain
+    enableStatefulSetAutoDeletePVC: false
+
+# Single binary: switch off every other component, the caches and the test helpers.
+read:
+  replicas: 0
+write:
+  replicas: 0
+backend:
+  replicas: 0
+ingester:
+  replicas: 0
+distributor:
+  replicas: 0
+querier:
+  replicas: 0
+queryFrontend:
+  replicas: 0
+queryScheduler:
+  replicas: 0
+indexGateway:
+  replicas: 0
+compactor:
+  replicas: 0
+ruler:
+  replicas: 0
+resultsCache:
+  enabled: false
+chunksCache:
+  enabled: false
+gateway:
+  enabled: false          # clients use the Service `loki` on port 3100 directly
+lokiCanary:
+  enabled: false
+test:
+  enabled: false
+minio:
+  enabled: false
+sidecar:
+  rules:
+    enabled: false
+monitoring:
+  dashboards:
+    enabled: false
+  rules:
+    enabled: false
+  serviceMonitor:
+    enabled: true         # kube-prometheus-stack is installed (CRD exists); Prometheus picks it up
+
+# The LAN Service and its NetworkPolicy hold this cluster's addresses: overlays/<cluster>/loki/values.yaml.
+# (Fluent Bit pushes every log line to Loki: leave its namespace in that NetworkPolicy, tests/fluent-bit.sh.)
+extraObjects: []

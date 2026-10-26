@@ -1,0 +1,43 @@
+# Tenant pods stay off the control planes.
+# A taint is only a request to the scheduler: a pod that names its node (`spec.nodeName`) skips the scheduler and the
+# taint, and a toleration lets it through one. Neither is blocked by Pod Security baseline. Capsule's Tenant
+# `nodeSelector` does not help here: it needs the PodNodeSelector admission plugin, which this API server does not run.
+# A ValidatingAdmissionPolicy runs inside the API server (no webhook, no restart) and applies to every namespace that
+# belongs to a tenant. Platform namespaces are not affected. Test: tests/tenant-guardrails.sh.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: tenant-pods-stay-on-workers
+  labels: {app.kubernetes.io/part-of: tenant-guardrails}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  validations:
+    # Only on CREATE: after scheduling nodeName is always set, and later updates must keep working.
+    - expression: "request.operation != 'CREATE' || !has(object.spec.nodeName) || object.spec.nodeName == ''"
+      message: "tenant pods must not set spec.nodeName: the scheduler places them on the worker nodes"
+    # No toleration of a node-role taint, and no catch-all toleration (operator Exists without a key).
+    - expression: >-
+        !has(object.spec.tolerations) ||
+        object.spec.tolerations.all(t,
+          !(has(t.key) && t.key.startsWith('node-role.kubernetes.io/')) &&
+          !(!has(t.key) && has(t.operator) && t.operator == 'Exists'))
+      message: "tenant pods must not tolerate control-plane taints or use a catch-all toleration"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: tenant-pods-stay-on-workers
+  labels: {app.kubernetes.io/part-of: tenant-guardrails}
+spec:
+  policyName: tenant-pods-stay-on-workers
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        - {key: capsule.clastix.io/tenant, operator: Exists}

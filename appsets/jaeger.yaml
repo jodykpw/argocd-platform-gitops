@@ -1,0 +1,53 @@
+# Jaeger v2 (layer 1): trace receiver (OTLP), Badger storage on a Longhorn volume, query API. Reached through
+# Grafana (data source Jaeger in kube-prometheus-stack). Auto-sync ON (after the test passed),
+# prune OFF. Plan and test: docs/jaeger.md, tests/jaeger.sh.
+# Before the first sync: apply bootstrap/platform-project.yaml (jaegertracing chart repo in sourceRepos). Needs
+# Longhorn (class `longhorn`) and kube-prometheus-stack (the ServiceMonitor CRD) first.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: jaeger
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'jaeger'
+    spec:
+      project: platform
+      sources:
+        - repoURL: https://jaegertracing.github.io/helm-charts
+          chart: jaeger
+          # 4.13.1 = Jaeger 2.20.0. NOT 4.14.x (Jaeger 2.21): 2.21 removed /api/services, /api/operations and the
+          # search endpoints that the Grafana Jaeger data source uses (404, found). Re-test before bumping.
+          targetRevision: "4.13.1"
+          helm:
+            releaseName: jaeger
+            valueFiles:
+              - $values/base/jaeger/values.yaml
+              - $values/overlays/{{ .cluster }}/jaeger/values.yaml
+        - repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: '{{ .server }}'
+        namespace: jaeger
+      syncPolicy:
+        automated:
+          prune: false        # never delete the Badger volume because a file was removed
+          selfHeal: false
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - PruneLast=true
+        managedNamespaceMetadata:
+          labels:
+            pod-security.kubernetes.io/enforce: baseline

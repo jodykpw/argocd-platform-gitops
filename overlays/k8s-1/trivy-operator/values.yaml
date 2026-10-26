@@ -1,0 +1,17 @@
+# Trivy Operator on k8s-1: replicas, resources, retention and storage of this cluster. The base keeps only the generic settings
+# (docs/repo-layout.md).
+operator:
+  replicas: 1
+trivy:
+  storageClassName: longhorn
+  server:
+    replicas: 1
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {memory: 1Gi}
+  resources:
+    requests: {cpu: 100m, memory: 100M}
+    limits: {memory: 500M}
+resources:
+  requests: {cpu: 50m, memory: 384Mi}
+  limits: {memory: 1Gi}      # a week peaked at 490Mi against the old 512Mi

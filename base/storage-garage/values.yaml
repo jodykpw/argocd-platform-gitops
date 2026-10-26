@@ -1,0 +1,35 @@
+# Garage (S3) chart from the Deuxfleurs repo, tag v2.4.1 (chart 0.10.2, Garage v2.4.1).
+# Checked against script/helm/garage at tag v2.4.1. Settings common to every cluster.
+
+garage:
+  s3:
+    api:
+      region: garage
+
+  # IMPORTANT with Argo CD: the chart generates a random rpcSecret and relies on Helm `lookup` to keep it.
+  # `lookup` returns nothing under `helm template`, so the secret would change on every sync.
+  # Always use an existing secret, created by hand (key: rpcSecret), never in Git:
+  #   kubectl -n garage create secret generic garage-rpc-secret --from-literal=rpcSecret=$(openssl rand -hex 32)
+  existingRpcSecret: garage-rpc-secret
+
+persistence:
+  enabled: true
+
+# Admin API token for Garage UI (and `garage` admin API calls). From a Secret created by hand, never in Git:
+#   kubectl -n garage create secret generic garage-admin-token --from-literal=admin-token="$(openssl rand -hex 32)"
+# The Secret must exist BEFORE this change is synced, or the pod stays in CreateContainerConfigError (S3 down).
+environment:
+  - name: GARAGE_ADMIN_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: garage-admin-token
+        key: admin-token
+
+service:
+  type: ClusterIP        # in-cluster only: garage.garage.svc:3900. No Ingress or Gateway route yet.
+
+# Reloader (docs/reloader.md): restart Garage when the admin token or the RPC secret changes (both read as
+# environment variables). Rotating the RPC secret of a cluster is a deliberate act: this only makes the restart that
+# it needs happen by itself. The chart exposes pod annotations only; Reloader reads them on the pod template.
+podAnnotations:
+  secret.reloader.stakater.com/reload: "garage-admin-token,garage-rpc-secret"

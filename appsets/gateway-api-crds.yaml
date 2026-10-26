@@ -1,0 +1,44 @@
+# Gateway API CRDs (layer 0): standard channel v1.5.1, the version live on k8s-1. The file is vendored in
+# gateway-api-crds/ so a rebuild does not depend on GitHub. To upgrade: download the new standard-install.yaml, add it
+# beside the old one, change nothing else, review the diff. Moved here from layer0/.
+# Prune is OFF twice: a deleted CRD deletes every Gateway and HTTPRoute. First app of a fresh cluster.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: gateway-api-crds
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'gateway-api-crds'
+    spec:
+      project: platform
+      source:
+        repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+        targetRevision: main
+        path: gateway-api-crds
+      destination:
+        server: '{{ .server }}'
+        namespace: default           # the CRDs and policies are cluster-scoped
+      # The API server fills in conversion: {strategy: None} on two of the CRDs; the vendored file does not have it.
+      ignoreDifferences:
+        - group: apiextensions.k8s.io
+          kind: CustomResourceDefinition
+          jsonPointers:
+            - /spec/conversion
+      syncPolicy:
+        automated:
+          prune: false
+          selfHeal: false
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}
+        syncOptions:
+          - ServerSideApply=true      # the CRDs are over 256 KiB in total; client-side apply would fail
+          - Prune=false

@@ -1,0 +1,18 @@
+# MetalLB on k8s-1: sizing and priority (base: base/metallb/values.yaml).
+controller:
+  priorityClassName: system-cluster-critical
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      memory: 256Mi
+
+speaker:
+  priorityClassName: system-cluster-critical
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 128Mi

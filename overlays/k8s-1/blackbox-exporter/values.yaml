@@ -1,0 +1,64 @@
+# blackbox-exporter on k8s-1: the probe targets (public UIs, the Authentik issuer, GitLab, the backup and storage
+# addresses). The whole list is here on purpose: Helm replaces lists, it does not merge them.
+extraManifests:
+  - apiVersion: monitoring.coreos.com/v1
+    kind: Probe
+    metadata:
+      name: public-ui
+      namespace: monitoring
+      labels: {app.kubernetes.io/part-of: blackbox-exporter}
+    spec:
+      interval: 60s
+      module: http_2xx
+      prober: {url: blackbox-exporter.monitoring.svc:9115}
+      targets:
+        staticConfig:
+          labels: {probe_group: public-ui}
+          static:
+            - https://grafana-k8s.jodywan.com/api/health
+            - https://headlamp.jodywan.com/
+            - https://garage-k8s.jodywan.com/
+            - https://argocd.jodywan.com/
+  - apiVersion: monitoring.coreos.com/v1
+    kind: Probe
+    metadata:
+      name: dependencies
+      namespace: monitoring
+      labels: {app.kubernetes.io/part-of: blackbox-exporter}
+    spec:
+      interval: 60s
+      module: http_2xx
+      prober: {url: blackbox-exporter.monitoring.svc:9115}
+      targets:
+        staticConfig:
+          labels: {probe_group: dependencies}
+          static:
+            # login for every UI, kubectl and Argo CD goes through this issuer
+            - https://authentik.jodywan.com/application/o/grafana-k8s-oauth-app/.well-known/openid-configuration
+            # Argo CD reads the platform-gitops repo from here
+            - https://gitlab.jodywan.com/users/sign_in
+  - apiVersion: monitoring.coreos.com/v1
+    kind: Probe
+    metadata:
+      name: tcp-ports
+      namespace: monitoring
+      labels: {app.kubernetes.io/part-of: blackbox-exporter}
+    spec:
+      interval: 60s
+      module: tcp_connect
+      prober: {url: blackbox-exporter.monitoring.svc:9115}
+      targets:
+        staticConfig:
+          labels: {probe_group: tcp-ports}
+          static:
+            - 10.1.5.123:3910     # backup Garage on docker-2 (Velero, etcd snapshots)
+            - 10.1.5.202:2049     # TrueNAS NFS (nfs class, Longhorn backups)
+            - 10.1.5.171:9001     # Capsule Proxy (tenant kubectl)
+            - 10.1.5.170:80       # Traefik (MetalLB address)
+replicas: 1
+resources:
+  requests:
+    cpu: 10m
+    memory: 24Mi
+  limits:
+    memory: 96Mi

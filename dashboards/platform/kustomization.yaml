@@ -1,0 +1,27 @@
+# Platform Grafana dashboards: each JSON file becomes a ConfigMap that the Grafana sidecar (label grafana_dashboard,
+# searched in all namespaces) provisions into the folder Platform (annotation grafana_folder, which the chart reads
+# because grafana.sidecar.dashboards.folderAnnotation is set in base/kube-prometheus-stack/values.yaml).
+# The chart's own dashboards go to the folder Kubernetes the same way (sidecar.dashboards.annotations there).
+# Used as a third source of the kube-prometheus-stack ApplicationSet. To add a dashboard: drop <name>.json here and
+# add an entry below. The dashboards are read-only in Grafana: change the JSON, push.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: monitoring
+generatorOptions:
+  disableNameSuffixHash: true      # stable names; the sidecar watches the objects, no rollout needed
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/part-of: platform
+  annotations:
+    grafana_folder: Platform
+configMapGenerator:
+  - name: platform-dashboard-traefik   # grafana.com 17346 revision 9, import inputs removed
+    files: [traefik.json]
+  - name: platform-dashboard-jaeger
+    files: [jaeger.json]
+  - name: platform-dashboard-velero
+    files: [velero.json]
+  - name: platform-dashboard-probes
+    files: [probes.json]
+  - name: platform-dashboard-trivy
+    files: [trivy.json]

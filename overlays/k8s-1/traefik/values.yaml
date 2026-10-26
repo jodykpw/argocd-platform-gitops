@@ -1,0 +1,29 @@
+# Traefik on k8s-1 (base: base/traefik/values.yaml).
+ingressRoute:
+  dashboard:
+    matchRule: Host(`traefik-k8s.jodywan.com`)
+
+deployment:
+  replicas: 2
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+
+podDisruptionBudget:
+  minAvailable: 1
+
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: DoNotSchedule
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: traefik
+
+# sampleRate 0.1 = one request in ten. Roll back: remove this block and let Argo CD sync.
+tracing:
+  sampleRate: 0.1

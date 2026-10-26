@@ -1,0 +1,24 @@
+# Kong's Prometheus plugin, served on the status listener (container port `status`, 8100) of the Kong pods. A PodMonitor, because the
+# Kong chart does not put the status port on its Service. The job label is set to `zeedlogic-kong` to match the Compose name.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: zeedlogic-kong
+  namespace: monitoring
+  labels: {app.kubernetes.io/part-of: zeedlogic-observability}
+spec:
+  namespaceSelector:
+    matchNames: [zeedlogic-dev, jodywan-dev]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kong
+      app.kubernetes.io/instance: zeedlogic
+  podMetricsEndpoints:
+    - port: status
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      relabelings:
+        - action: replace        # the CRD default, written out so Argo CD sees no difference
+          targetLabel: job
+          replacement: zeedlogic-kong

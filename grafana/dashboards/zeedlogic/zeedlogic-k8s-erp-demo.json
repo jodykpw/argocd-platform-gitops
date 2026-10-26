@@ -1,0 +1,546 @@
+{
+  "uid": "18113ec0-5421-55fa-b41f-9592ce473c69",
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "Loki",
+          "value": "loki"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Loki",
+        "multi": false,
+        "name": "DS_LOKI",
+        "options": [],
+        "query": "loki",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "zeedlogic-dev",
+          "value": "zeedlogic-dev"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Namespace",
+        "multi": false,
+        "name": "namespace",
+        "options": [
+          {
+            "selected": true,
+            "text": "zeedlogic-dev",
+            "value": "zeedlogic-dev"
+          },
+          {
+            "selected": false,
+            "text": "zeedlogic-stg",
+            "value": "zeedlogic-stg"
+          },
+          {
+            "selected": false,
+            "text": "zeedlogic-prod",
+            "value": "zeedlogic-prod"
+          },
+          {
+            "selected": false,
+            "text": "jodywan-dev",
+            "value": "jodywan-dev"
+          },
+          {
+            "selected": false,
+            "text": "jodywan-stg",
+            "value": "jodywan-stg"
+          },
+          {
+            "selected": false,
+            "text": "jodywan-prod",
+            "value": "jodywan-prod"
+          }
+        ],
+        "query": "zeedlogic-dev,zeedlogic-stg,zeedlogic-prod,jodywan-dev,jodywan-stg,jodywan-prod",
+        "queryValue": "",
+        "skipUrlSync": false,
+        "type": "custom"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2,
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "description": "Log lines per second from the erp-demo-jobs container.",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "sum(rate({namespace=\"$namespace\", pod=~\"erp-demo-jobs-.*\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Total Log Rate (lines/s)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.001
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "id": 2,
+      "description": "Error and warning lines from the ERP demo jobs in the last 5 minutes.",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "sum(count_over_time({namespace=\"$namespace\", pod=~\"erp-demo-jobs-.*\"} |~ `Traceback|WARN:` [5m]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Errors/Warnings (last 5m)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "id": 3,
+      "description": "How many times the daily simulator ran in the last 24 hours.",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "sum(count_over_time({namespace=\"$namespace\", pod=~\"erp-demo-jobs-.*\"} |~ `\\[erp-sim\\] (Done: attendance=|Already simulated)` [24h]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Daily Simulator Runs (last 24h)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "id": 4,
+      "description": "How many times the delivery estimate script ran in the last hour.",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "sum(count_over_time({namespace=\"$namespace\", pod=~\"erp-demo-jobs-.*\"} |~ `\\[delivery-estimate\\] Done:` [1h]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Delivery Estimate Runs (last 1h)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Daily Simulator"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Delivery Estimate"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "purple",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
+      "id": 5,
+      "description": "Log lines per second from each ERP demo script.",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "sum(rate({namespace=\"$namespace\", pod=~\"erp-demo-jobs-.*\"} |~ `\\[erp-sim\\]` [5m]))",
+          "legendFormat": "Daily Simulator",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "sum(rate({namespace=\"$namespace\", pod=~\"erp-demo-jobs-.*\"} |~ `\\[delivery-estimate\\]` [5m]))",
+          "legendFormat": "Delivery Estimate",
+          "refId": "B"
+        }
+      ],
+      "title": "Log Volume by Script",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "error"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "warn"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
+      "id": 6,
+      "description": "Log lines per second by Loki's detected level. Most lines show as unknown for these scripts.",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "sum(rate({namespace=\"$namespace\", pod=~\"erp-demo-jobs-.*\"}[5m])) by (detected_level)",
+          "legendFormat": "{{detected_level}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Log Volume by Detected Level",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 12
+      },
+      "id": 7,
+      "description": "Summary lines from the daily simulator: run results and notable events.",
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "{namespace=\"$namespace\", pod=~\"erp-demo-jobs-.*\"} |~ `\\[erp-sim\\]` |~ `Done: attendance=|Already simulated|WARN:|reorder:|backorder released` | json | line_format `{{.log}}`",
+          "refId": "A"
+        }
+      ],
+      "title": "Daily Simulator — Run Summaries & Notable Events",
+      "type": "logs"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 21
+      },
+      "id": 8,
+      "description": "Every log line from the daily simulator.",
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "{namespace=\"$namespace\", pod=~\"erp-demo-jobs-.*\"} |~ `\\[erp-sim\\]` | json | line_format `{{.log}}`",
+          "refId": "A"
+        }
+      ],
+      "title": "Daily Simulator — Full Log (simulate_daily_erp_activity.py)",
+      "type": "logs"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      },
+      "id": 9,
+      "description": "Every log line from the delivery estimate script.",
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "{namespace=\"$namespace\", pod=~\"erp-demo-jobs-.*\"} |~ `\\[delivery-estimate\\]` | json | line_format `{{.log}}`",
+          "refId": "A"
+        }
+      ],
+      "title": "Delivery Estimate — Full Log (recalculate_delivery_estimates.py)",
+      "type": "logs"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 39
+      },
+      "id": 10,
+      "description": "Tracebacks and warnings from both ERP demo scripts.",
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "{namespace=\"$namespace\", pod=~\"erp-demo-jobs-.*\"} |~ `Traceback|WARN:` | json | line_format `{{.log}}`",
+          "refId": "A"
+        }
+      ],
+      "title": "Errors & Warnings (both scripts)",
+      "type": "logs"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": [
+    "erp-demo",
+    "kubernetes",
+    "logs",
+    "loki",
+    "zeedlogic"
+  ],
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "title": "ZeedLogic ERP Demo (Kubernetes)",
+  "version": 1
+}

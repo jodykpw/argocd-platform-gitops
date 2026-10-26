@@ -1,0 +1,19 @@
+# Applies TenantImageTags to Pods in tenant namespaces (those with the Capsule tenant label). Platform namespaces are
+# not matched. `deny` (the audit showed 0 violations in `dryrun`). Violations of running pods:
+#   kubectl get tenantimagetags tenant-image-tags -o jsonpath='{.status.totalViolations}'
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: TenantImageTags
+metadata:
+  name: tenant-image-tags
+  labels: {app.kubernetes.io/part-of: tenant-guardrails}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+    namespaceSelector:
+      matchExpressions:
+        - {key: capsule.clastix.io/tenant, operator: Exists}

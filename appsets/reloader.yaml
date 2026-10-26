@@ -1,0 +1,51 @@
+# Reloader (layer 1): rolling-restarts a Deployment, StatefulSet or DaemonSet when a ConfigMap or Secret it uses changes.
+# Opt-in per workload by annotation (autoReloadAll is off), so nothing restarts unless an owner asked for it.
+# Plan, risks and test: docs/reloader.md, tests/reloader.sh.
+# Before the first sync: apply bootstrap/platform-project.yaml (the stakater chart repo is in sourceRepos).
+# Auto-sync ON (tests/reloader.sh passed, 13/13), prune OFF.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: reloader
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'reloader'
+    spec:
+      project: platform
+      sources:
+        - repoURL: https://stakater.github.io/stakater-charts
+          chart: reloader
+          targetRevision: "2.2.18"        # Reloader v1.4.22
+          helm:
+            releaseName: reloader
+            valueFiles:
+              - $values/base/reloader/values.yaml
+              - $values/overlays/{{ .cluster }}/reloader/values.yaml
+        - repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: '{{ .server }}'
+        namespace: reloader
+      syncPolicy:
+        automated:
+          prune: false
+          selfHeal: false
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - PruneLast=true
+        managedNamespaceMetadata:
+          labels:
+            pod-security.kubernetes.io/enforce: baseline

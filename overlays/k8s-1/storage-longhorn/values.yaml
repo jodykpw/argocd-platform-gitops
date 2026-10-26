@@ -1,0 +1,56 @@
+# Longhorn on k8s-1. Workers only (control planes are tainted; no tolerations on purpose).
+defaultSettings:
+  defaultDataPath: /mnt/longhorn     # dedicated 100 GB disk (/dev/sdb) per worker, see docs/storage-longhorn.md
+  defaultReplicaCount: 2             # 3 workers; 2 replicas = about 150 GB usable of 300 GB raw
+
+persistence:
+  defaultClassReplicaCount: 2
+  createStorageClass: true
+  defaultClass: false          # NFS or another class may become the default; do not take it yet
+  defaultFsType: ext4
+  reclaimPolicy: Retain        # keep the volume when a PVC is deleted
+  dataEngine: v1               # kernel 5.15: V2 needs 6.7 or later
+
+# Volume backups go to TrueNAS (NFS export, dataset byte-haven/k8s-1-longhorn-backup), see docs/storage-longhorn.md.
+# The chart applies this on first install; on the running cluster the BackupTarget `default` was patched by hand.
+defaultBackupStore:
+  backupTarget: nfs://10.1.5.202:/mnt/byte-haven/k8s-1-longhorn-backup
+  pollInterval: "300"
+# Recurring backup job. It applies to volumes labelled recurring-job-group.longhorn.io/backup=enabled (set on the
+# Longhorn Volume objects by hand: a PVC label is not synced). Which volumes: docs/storage-longhorn.md.
+extraObjects:
+  - apiVersion: longhorn.io/v1beta2
+    kind: RecurringJob
+    metadata:
+      name: backup-daily
+      namespace: longhorn-system
+    spec:
+      name: backup-daily
+      task: backup
+      cron: "30 1 * * *"
+      retain: 7
+      concurrency: 1
+      groups: [backup]
+  # The chart's NetworkPolicy for longhorn-manager only admits Longhorn's own pods. Policies add up, so this one lets
+  # Prometheus (namespace monitoring) scrape the manager's metrics port 9500 and nothing else.
+  - apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: longhorn-manager-metrics
+      namespace: longhorn-system
+    spec:
+      podSelector:
+        matchLabels:
+          app: longhorn-manager
+      policyTypes: [Ingress]
+      ingress:
+        - from:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: monitoring
+              podSelector:
+                matchLabels:
+                  app.kubernetes.io/name: prometheus
+          ports:
+            - protocol: TCP
+              port: 9500

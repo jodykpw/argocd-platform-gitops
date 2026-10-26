@@ -1,0 +1,77 @@
+# Grafana (layer 1): its own app (it was the grafana subchart of kube-prometheus-stack, see
+# docs/grafana.md for the plan, the test and the rollback). https://grafana-k8s.jodywan.com/
+# Namespace `grafana`, objects named `grafana`, a fresh volume with the data copied from the bundled one's
+# (docs/grafana.md, "Move to its own namespace").
+# Auto-sync ON (prune OFF, no self-heal). A values change restarts Grafana (Recreate, about a minute).
+# Before the first sync: apply bootstrap/platform-project.yaml (grafana-community chart repo in sourceRepos), the
+# Secrets grafana-admin and grafana-oidc must exist in the namespace `grafana` (by hand, not in Git), and on a
+# migration the PVC `grafana` must already hold the copied data (docs/grafana.md).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: grafana
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'grafana'
+    spec:
+      project: platform
+      sources:
+        - repoURL: https://grafana-community.github.io/helm-charts
+          chart: grafana
+          targetRevision: "13.5.0"        # Grafana 13.2.3
+          helm:
+            releaseName: grafana
+            valueFiles:
+              - $values/base/grafana/values.yaml
+              - $values/overlays/{{ .cluster }}/grafana/values.yaml
+        - repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+          targetRevision: main
+          ref: values
+        # The tenant starter dashboard ConfigMap (mounted into Grafana): kustomize source in this repo.
+        - repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+          targetRevision: main
+          path: grafana
+      destination:
+        server: '{{ .server }}'
+        namespace: grafana
+      ignoreDifferences:
+        # Reloader writes the time of its last restart into the pod template (docs/reloader.md).
+        - group: apps
+          kind: Deployment
+          name: grafana
+          jqPathExpressions:
+            - .spec.template.metadata.annotations."reloader.stakater.com/last-reloaded-from"
+        # The Gateway API server adds defaults to the HTTPRoute, which Argo CD shows as OutOfSync.
+        - group: gateway.networking.k8s.io
+          kind: HTTPRoute
+          jqPathExpressions:
+            - .spec.parentRefs[]?.group
+            - .spec.parentRefs[]?.kind
+            - .spec.rules[]?.backendRefs[]?.group
+            - .spec.rules[]?.backendRefs[]?.kind
+            - .spec.rules[]?.backendRefs[]?.weight
+      syncPolicy:
+        automated:
+          prune: false        # never delete the volume because a file was removed
+          selfHeal: false
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - PruneLast=true
+          - RespectIgnoreDifferences=true
+        managedNamespaceMetadata:
+          labels:
+            # the Traefik Gateway listener only accepts routes from namespaces with this label
+            gateway-access: platform
+            pod-security.kubernetes.io/enforce: baseline

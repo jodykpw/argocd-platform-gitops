@@ -1,0 +1,7 @@
+# Fixture for tests/tenant-gitops.sh (E2E=1): what a tenant deploys through Argo CD (no RBAC objects).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: e2e-probe
+data:
+  purpose: tests/tenant-gitops.sh

@@ -1,0 +1,59 @@
+# OPA Gatekeeper (layer 1): admission policy engine for the rules Capsule, Pod Security and ValidatingAdmissionPolicy do
+# not cover (image tags, registries). Chosen over Kyverno to keep one policy language with Azure Policy
+# for AKS, which is Gatekeeper underneath. Plan, decisions and test: docs/gatekeeper.md, tests/gatekeeper.sh.
+# The ConstraintTemplates (Rego, wave 0) and Constraints (wave 1) are in gatekeeper-policies/ (third source below);
+# the Constraints are in `deny` (after a clean `dryrun` audit).
+# Before the first sync: apply bootstrap/platform-project.yaml (gatekeeper chart repo in sourceRepos).
+# Auto-sync ON, prune OFF.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: gatekeeper
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'gatekeeper'
+    spec:
+      project: platform
+      sources:
+        - repoURL: https://open-policy-agent.github.io/gatekeeper/charts
+          chart: gatekeeper
+          targetRevision: "3.23.1"        # Gatekeeper v3.23.1
+          helm:
+            releaseName: gatekeeper
+            valueFiles:
+              - $values/base/gatekeeper/values.yaml
+              - $values/overlays/{{ .cluster }}/gatekeeper/values.yaml
+        - repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+          targetRevision: main
+          ref: values
+        # Templates and constraints are in the same app. A Constraint kind only exists after Gatekeeper has compiled its
+        # template, so the Constraints are in wave 1 and the sync retries (SkipDryRunOnMissingResource below).
+        - repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+          targetRevision: main
+          path: gatekeeper-policies
+      destination:
+        server: '{{ .server }}'
+        namespace: gatekeeper-system
+      syncPolicy:
+        automated:
+          prune: false
+          selfHeal: false
+        retry:
+          limit: 5
+          backoff: {duration: 15s, factor: 2, maxDuration: 3m}
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - PruneLast=true
+          - SkipDryRunOnMissingResource=true
+        managedNamespaceMetadata:
+          labels:
+            pod-security.kubernetes.io/enforce: restricted

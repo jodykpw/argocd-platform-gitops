@@ -1,0 +1,30 @@
+# Renovate (chart renovate/renovate 46.352.2, Renovate 44.149.2). Checked against `helm show values` and `helm template`.
+# Plan, token and rules: docs/renovate.md, renovate.json (repo root), tests/renovate.sh.
+
+cronjob:
+  # Every night at 04:00 UTC. The repo config (renovate.json) limits when branches are created (Monday morning);
+  # the other nights only refresh the Dependency Dashboard issue.
+  schedule: '0 4 * * *'
+  # SUSPENDED until the token Secret exists. Create it, then set this to false and push:
+  #   kubectl -n renovate create secret generic renovate-env --from-literal=RENOVATE_TOKEN='<GitLab token>'
+  suspend: true
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobBackoffLimit: 1
+  activeDeadlineSeconds: 3600
+  ttlSecondsAfterFinished: 86400
+
+# Environment from a Secret created by hand: RENOVATE_TOKEN (GitLab access token with `api` scope, Developer role on
+# the project; never in Git) and optionally GITHUB_COM_TOKEN (read-only, public data) to avoid GitHub API rate limits
+# when Renovate looks up release notes.
+envFrom:
+  - secretRef:
+      name: renovate-env
+      optional: true
+
+# The runner configuration (GitLab endpoint, project, author) is cluster specific:
+# overlays/<cluster>/renovate/values.yaml (key `renovate.config`).
+
+redis:
+  enabled: false

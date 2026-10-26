@@ -1,0 +1,51 @@
+# Capsule Proxy on k8s-1 (base: base/capsule-proxy/values.yaml).
+replicaCount: 2
+priorityClassName: system-cluster-critical
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: DoNotSchedule
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: capsule-proxy
+        app.kubernetes.io/instance: capsule-proxy
+
+# Memory history: limit 256Mi (pods ran at ~252Mi and missed the 1s probes) -> 512Mi (7 restarts at the limit) -> 1024Mi -> 2048Mi.
+# Each raise was needed because usage kept growing: capsule-proxy 0.15.0 leaks about 3 goroutines on every /readyz/ call
+# (measured 2026-10-20 by sending 100 requests to each endpoint: /healthz/ +1, /readyz/ +303, /metrics +2). The kubelet calls the
+# readiness probe every 10 s, so 18 goroutines a minute, about 22Mi an hour, and an OOM kill every ~46 h at 1024Mi
+# (2026-10-19 09:20Z, alert ContainerOOMKilled). Fixed upstream in v0.15.1: "reuse readiness probe transport to prevent memory
+# leaks" (projectcapsule/capsule-proxy #1124). The chart is pinned to 0.15.1 in appsets/capsule-proxy.yaml.
+# The limit stays at 2048Mi until a week of go_goroutines / go_memstats_heap_inuse_bytes (ServiceMonitor below) shows them flat;
+# then it can come back down. 0.15.2 (2026-10-20) also changes who counts as an owner (promoted service accounts): not taken yet.
+resources:
+  requests: {cpu: 100m, memory: 512Mi}
+  limits: {cpu: 500m, memory: 2048Mi}
+
+# Metrics on port 8080 (capsule-proxy-metrics-service), scraped by the platform Prometheus (it selects every ServiceMonitor).
+# Added 2026-10-20: this is how the goroutine leak was measured, and how the fix is checked.
+serviceMonitor:
+  enabled: true
+  endpoint:
+    interval: 30s
+
+# Chart default timeoutSeconds is 1; give the proxy time to answer under load.
+livenessProbe:
+  timeoutSeconds: 5
+  failureThreshold: 5
+readinessProbe:
+  timeoutSeconds: 5
+
+# Own LoadBalancer address, pinned so kubeconfigs keep working. 10.1.5.170 is Traefik.
+service:
+  annotations:
+    metallb.io/loadBalancerIPs: 10.1.5.171
+
+options:
+  # The API server uses the email claim as username (oidc-username-claim=email); the chart default is preferred_username.
+  oidcUsernameClaim: email
+  # The platform team is not a Capsule user and is never filtered.
+  ignoredUserGroups:
+    - "oidc:cluster-admin"
+  additionalSANs:
+    - "10.1.5.171"

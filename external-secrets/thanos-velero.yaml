@@ -1,0 +1,39 @@
+# Object storage credentials, each a whole file kept as ONE plain multi-line group variable (not JSON):
+#   thanos_objstore = the objstore.yml of the Thanos sidecar and components (S3 endpoint, bucket, keys)
+#   velero_s3       = the AWS credentials file of Velero (cloud key)
+# GitLab's variable editor strips the trailing newline, so the template puts it back (hash-checked before switching,
+# docs/external-secrets.md). Merge adopts the existing Secrets. Reloader restarts the Thanos components and Velero when
+# a value changes; Prometheus (the sidecar) is restarted by hand after thanos-objstore changes (reloader.md).
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: thanos-objstore
+  namespace: monitoring
+spec:
+  refreshInterval: 1h
+  secretStoreRef: {name: gitlab-platform, kind: ClusterSecretStore}
+  target:
+    name: thanos-objstore
+    creationPolicy: Merge
+    template:
+      data:
+        objstore.yml: "{{ .file | trimSuffix \"\\n\" }}\n"
+  data:
+    - {secretKey: file, remoteRef: {key: thanos_objstore}}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: velero-s3
+  namespace: velero
+spec:
+  refreshInterval: 1h
+  secretStoreRef: {name: gitlab-platform, kind: ClusterSecretStore}
+  target:
+    name: velero-s3
+    creationPolicy: Merge
+    template:
+      data:
+        cloud: "{{ .file | trimSuffix \"\\n\" }}\n"
+  data:
+    - {secretKey: file, remoteRef: {key: velero_s3}}

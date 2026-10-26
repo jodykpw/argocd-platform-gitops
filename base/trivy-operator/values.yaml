@@ -1,0 +1,58 @@
+# Trivy Operator (chart aqua/trivy-operator 0.37.0, app 0.35.0, Trivy 0.75.0). Checked against `helm show values` and
+# `helm template`. Plan, decisions and test: docs/trivy-operator.md, tests/trivy-operator.sh.
+
+# Reports (VulnerabilityReport, ConfigAuditReport, ExposedSecretReport, RbacAssessmentReport, SbomReport) are written
+# next to the workload they describe; scan Jobs run in the operator namespace.
+targetNamespaces: ""          # all namespaces
+excludeNamespaces: ""
+
+operator:
+  scanJobTimeout: 10m
+  # Five scans at a time: the nodes have about 5% CPU used and one scan takes seconds. Finished Jobs count against
+  # this limit until they are deleted, so the TTL is short: with 3 and 5m the first full scan of the cluster ran at
+  # about one workload a minute. The reports are the record; Job logs are not needed.
+  scanJobsConcurrentLimit: 5
+  scanJobTTL: 30s
+  scannerReportTTL: "24h"     # reports older than this are rescanned
+  vulnerabilityScannerEnabled: true
+  configAuditScannerEnabled: true
+  rbacAssessmentScannerEnabled: true
+  exposedSecretScannerEnabled: true
+  # Infrastructure assessment runs node-collector Jobs with hostPath mounts of /etc/kubernetes, /var/lib/etcd and
+  # more. The namespace enforces Pod Security `baseline` (no hostPath), so it is OFF. Turning it on needs the
+  # namespace at `privileged`: docs/trivy-operator.md.
+  infraAssessmentScannerEnabled: false
+  # SBOM reports are large objects (etcd) and nothing here reads them.
+  sbomGenerationEnabled: false
+  # The operator would otherwise read Secrets in every namespace (imagePullSecrets of workloads) to scan private
+  # registries. Nothing private is scanned today, and tenants may bring their own registries: least privilege first.
+  accessGlobalSecretsAndServiceAccount: false
+  metricsFindingsEnabled: true
+  # One in-cluster Trivy server (StatefulSet `trivy-service`, port 4954) holds the vulnerability database; scan Jobs
+  # are clients. This also sets mode ClientServer and the server URL.
+  builtInTrivyServer: true
+
+trivyOperator:
+  # Reports for tenants' workloads in their own namespaces; scan Jobs stay in `trivy-system`, outside tenant reach.
+  scanJobsInSameNamespace: false
+  scanJobAutomountServiceAccountToken: false
+  reportRecordFailedChecksOnly: true
+
+trivy:
+  storageClassEnabled: true
+  storageSize: 5Gi
+  severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+  ignoreUnfixed: false
+
+# Cluster compliance (reports `ClusterComplianceReport`). The CIS spec needs infrastructure assessment (off), so
+# only the specs that work from workloads and RBAC are kept.
+compliance:
+  cron: 0 */6 * * *
+  reportType: summary
+  specs:
+    - k8s-nsa-1.0
+    - k8s-pss-baseline-0.1
+    - k8s-pss-restricted-0.1
+
+serviceMonitor:
+  enabled: true               # the stack accepts monitors from any namespace

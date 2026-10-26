@@ -1,0 +1,54 @@
+# Fluent Bit log shipper (layer 1): DaemonSet on every node, reads /var/log/containers, sends to Loki with the
+# tenant taken from the Capsule tenant label of the namespace. Auto-sync ON (after the test passed),
+# prune OFF: a removed file or a wrong sync must never delete the log volume. Review every targetRevision bump.
+# Plan and test: docs/fluent-bit.md, tests/fluent-bit.sh. Sync Loki first (docs/loki.md).
+# Before the first sync: apply bootstrap/platform-project.yaml (fluent chart repo in sourceRepos).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: fluent-bit
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'fluent-bit'
+    spec:
+      project: platform
+      sources:
+        - repoURL: https://fluent.github.io/helm-charts
+          chart: fluent-bit
+          targetRevision: "0.58.3"
+          helm:
+            releaseName: fluent-bit
+            valueFiles:
+              - $values/base/fluent-bit/values.yaml
+              - $values/overlays/{{ .cluster }}/fluent-bit/values.yaml
+        - repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: '{{ .server }}'
+        namespace: fluent-bit
+      syncPolicy:
+        automated:
+          prune: false        # never delete anything because a file was removed
+          selfHeal: false
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - PruneLast=true
+        managedNamespaceMetadata:
+          labels:
+            # hostPath volumes (/var/log, /var/lib/fluent-bit) are not allowed by `baseline`
+            pod-security.kubernetes.io/enforce: privileged
+            pod-security.kubernetes.io/audit: privileged
+            pod-security.kubernetes.io/warn: privileged

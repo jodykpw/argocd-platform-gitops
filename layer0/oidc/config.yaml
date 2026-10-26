@@ -1,0 +1,6 @@
+kube-apiserver-arg:
+  - "oidc-issuer-url=https://authentik.jodywan.com/application/o/kube-apiserver-oauth-app/"
+  - "oidc-client-id=BJf5svepOPOag0dbh48rzIvGOhg6I9UagQ0QxQjJ"
+  - "oidc-username-claim=email"
+  - "oidc-groups-claim=groups"
+  - "oidc-groups-prefix=oidc:"

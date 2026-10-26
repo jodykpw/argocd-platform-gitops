@@ -1,0 +1,40 @@
+# Tenant network gate (layer 1): default-deny and a small allow list in every tenant namespace (a Capsule
+# GlobalTenantResource replicates it), and "refuse tenant pods" policies in the platform namespaces that have no
+# narrower policy of their own. Files: tenant-baseline/. Design and test: docs/tenant-network.md,
+# tests/tenant-network.sh.
+# Auto-sync ON, prune OFF (applied by hand and tested before this app took them over). Removing a file
+# never deletes a policy: delete it by hand after a review. Needs Capsule (the GlobalTenantResource CRD) first.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: tenant-baseline
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'tenant-baseline'
+    spec:
+      project: platform
+      source:
+        repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+        targetRevision: main
+        path: tenant-baseline
+      destination:
+        server: '{{ .server }}'
+        namespace: capsule-system        # the policies name their own namespaces; the GlobalTenantResource is cluster-scoped
+      syncPolicy:
+        automated:
+          prune: false
+          selfHeal: false
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}
+        syncOptions:
+          - ServerSideApply=true
+          - PruneLast=true

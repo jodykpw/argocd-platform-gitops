@@ -1,0 +1,47 @@
+# Capsule Proxy (layer 0): the only way tenants reach the API (filters `kubectl` per tenant). Holds the TLS secret every
+# tenant kubeconfig trusts: the certgen Job is an Argo CD hook and skips an existing secret.
+# Moved here from layer0/; same Helm release, rendered output byte-identical. Auto-sync ON, prune OFF.
+# Needs capsule and metallb first. Before the first sync: apply bootstrap/oci-repos.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: capsule-proxy
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'capsule-proxy'
+    spec:
+      project: platform
+      sources:
+        - repoURL: ghcr.io/projectcapsule/charts
+          chart: capsule-proxy
+          targetRevision: "0.15.1"
+          helm:
+            releaseName: capsule-proxy
+            valueFiles:
+              - $values/base/capsule-proxy/values.yaml
+              - $values/overlays/{{ .cluster }}/capsule-proxy/values.yaml
+        - repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: '{{ .server }}'
+        namespace: capsule-system
+      syncPolicy:
+        automated:
+          prune: false        # never delete anything because a file was removed
+          selfHeal: false
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - PruneLast=true

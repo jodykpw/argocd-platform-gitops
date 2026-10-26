@@ -1,0 +1,34 @@
+# Capsule Proxy (layer 0), chart capsule-proxy 0.15.1. Minimum that is true on any cluster; the address, the identity
+# provider settings, sizing and placement are in overlays/<cluster>/capsule-proxy/.
+#
+# Why: Kubernetes RBAC cannot filter cluster-wide lists per team. With the proxy in front of the API server,
+# `kubectl get ns` shows a tenant user only their own namespaces (and the allowed StorageClasses/IngressClasses, see
+# proxySettings in the Tenants). Users point their kubeconfig at the proxy instead of the API server
+# (layer0/oidc/TENANT-KUBECONFIG.md). Needs Capsule first.
+
+service:
+  type: LoadBalancer
+
+options:
+  leaderElection: true            # two replicas
+  # Non-owners (developers, viewers) only see their namespaces through the proxy when their
+  # RoleBindings carry the label reflection.proxy.projectcapsule.dev/enabled=true.
+  roleBindingReflector: true
+  capsuleConfigurationName: default
+  # cert-manager is not installed: a chart job generates a self-signed certificate that includes the SANs.
+  enableSSL: true
+  generateCertificates: true
+
+certManager:
+  generateCertificates: false
+
+# certgen Job: not a Helm hook, and the chart deletes it after 60 s, so Argo CD would show the app OutOfSync (Job
+# missing). Make it an Argo CD hook instead: it is run on each sync, removed before the next, and not part of the drift
+# comparison. It skips an existing secret ("secret already exists", tested in a throwaway namespace).
+# (ttlSecondsAfterFinished: -1 is rejected by the API server and large numbers render as 3.1536e+08.)
+global:
+  jobs:
+    certs:
+      annotations:
+        argocd.argoproj.io/hook: Sync
+        argocd.argoproj.io/hook-delete-policy: BeforeHookCreation

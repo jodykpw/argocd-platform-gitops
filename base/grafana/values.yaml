@@ -1,0 +1,86 @@
+# Grafana (layer 1), its own app in its own namespace `grafana` (before that: the grafana subchart of
+# kube-prometheus-stack, in `monitoring`). Chart grafana-community/grafana 13.5.0 = the version kube-prometheus-stack
+# 92.3.0 bundled (Grafana 13.2.3). Release name `grafana`, so every object is called `grafana`. Plan, test and
+# rollback: docs/grafana.md.
+
+# Probe and scrape the way the bundled one did.
+rbac:
+  pspEnabled: false
+service:
+  portName: http-web
+serviceMonitor:
+  enabled: true
+  # The Prometheus of the stack selects ServiceMonitors from any namespace and any release label.
+  labels: {}
+
+# The admin account comes from a Secret created by hand (never in Git): grafana-admin with keys
+# admin-user and admin-password. docs/kube-prometheus-stack.md.
+admin:
+  existingSecret: grafana-admin
+  userKey: admin-user
+  passwordKey: admin-password
+# Grafana's RWO volume must be released before a new pod starts.
+deploymentStrategy:
+  type: Recreate
+persistence:
+  enabled: true
+  type: pvc
+testFramework:
+  enabled: false
+# Reloader (docs/reloader.md): restart Grafana when one of the hand-made Secrets it reads as environment variables
+# changes (grafana-admin: admin user and password, grafana-oidc: Authentik client id and secret). Without this a
+# rotated secret is ignored until someone restarts the pod. Annotation on the Deployment, not on the pod.
+annotations:
+  secret.reloader.stakater.com/reload: "grafana-admin,grafana-oidc"
+# Route through the shared Traefik Gateway (same pattern as Headlamp and Garage UI). The namespace carries
+# gateway-access=platform (set in the ApplicationSet), which the `web` listener requires.
+route:
+  main:
+    enabled: true
+    parentRefs:
+      - name: traefik-gateway
+        namespace: traefik
+        sectionName: web
+grafana.ini:
+  security:
+    cookie_secure: true
+  analytics:
+    check_for_updates: false
+    reporting_enabled: false
+  auth:
+    # keep the local login form: the local admin is the break-glass account if Authentik is down
+    disable_login_form: false
+  # New users are not placed in Main Org. and cannot create organizations: membership comes from org_mapping only.
+  users:
+    auto_assign_org: false
+    allow_org_create: false
+# Starter dashboard for the tenant organizations (Namespace overview, uses the data sources `prometheus` and `loki`
+# that every tenant organization has under the same uids). The JSON is grafana/dashboards/overview.json,
+# delivered as the ConfigMap `tenant-dashboards` by the kustomize source `grafana/` of this app (same namespace) and
+# mounted here; one file
+# provider per organization (orgId 2 = zeedlogic, 3 = jodywan, see grafana-orgs.sh) loads it read-only.
+extraConfigmapMounts:
+  - name: tenant-dashboards
+    mountPath: /var/lib/grafana/dashboards/tenant
+    configMap: tenant-dashboards
+    readOnly: true
+# One file provider per tenant organization (orgId) is cluster specific: overlays/<cluster>/grafana/values.yaml.
+# Dashboards come from ConfigMaps labelled grafana_dashboard in any namespace: the stack chart's own (folder
+# Kubernetes, still rendered by kube-prometheus-stack with forceDeployDashboards) and ours from dashboards/platform
+# (folder Platform, third source of the kube-prometheus-stack app). A ConfigMap annotated grafana_folder lands in
+# that folder.
+sidecar:
+  dashboards:
+    enabled: true
+    label: grafana_dashboard
+    labelValue: "1"
+    searchNamespace: ALL
+    folderAnnotation: grafana_folder
+    provider:
+      foldersFromFilesStructure: true
+  # Data sources are provisioned from this file (`datasources` below), not from ConfigMaps.
+  datasources:
+    enabled: false
+
+# Data sources, provisioned from this file (sidecar.datasources is off above). They name this cluster's tenants and
+# tenant header values: overlays/<cluster>/grafana/values.yaml.

@@ -1,0 +1,8 @@
+# ZeedLogic observability wiring (docs/zeedlogic-observability.md). The scrape objects live in `monitoring` and select the
+# tenant namespaces; the egress rule lives in the tenant namespace it opens.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - servicemonitor-fastapi.yaml
+  - podmonitor-kong.yaml
+  - network-policies.yaml

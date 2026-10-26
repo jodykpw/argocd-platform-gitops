@@ -1,0 +1,91 @@
+# Loki on k8s-1. Workers only (control planes are tainted). Volume: 10 GiB on Longhorn (2 replicas = 20 GiB raw),
+# see the budget in docs/storage-longhorn.md. Retention, size and replicas are here; the generic Loki settings are in base/loki/values.yaml.
+
+# The whole list is here on purpose: Helm replaces lists, it does not merge them.
+# LAN address for the central Grafana on docker-2 (grafana.jodywan.com, 10.1.5.123), same pattern as the Thanos
+# Querier (docs/lan-access-metallb.md). Loki has NO authentication and the tenant header is not a credential, so
+# access is limited by a NetworkPolicy: only the namespaces that need Loki, and docker-2. `Local` keeps the
+# caller's source IP, which the policy matches on. Data source in the docker-2 Grafana: URL http://10.1.5.173,
+# header X-Scope-OrgID (docs/loki.md).
+# DANGER when editing the policy: Fluent Bit (namespace fluent-bit) pushes every log line to Loki; leaving it out
+# silently stops all log shipping. Re-run tests/fluent-bit.sh after any change.
+extraObjects:
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: loki-lan
+      namespace: loki
+      labels:
+        app.kubernetes.io/name: loki-lan
+        app.kubernetes.io/part-of: loki
+      annotations:
+        metallb.universe.tf/loadBalancerIPs: 10.1.5.173
+    spec:
+      type: LoadBalancer
+      externalTrafficPolicy: Local
+      ports:
+        - name: http
+          port: 80                 # the URL needs no port; the pod listens on 3100
+          targetPort: http-metrics
+          protocol: TCP
+      selector:
+        app.kubernetes.io/component: single-binary
+        app.kubernetes.io/instance: loki
+        app.kubernetes.io/name: loki
+  - apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: loki-ingress
+      namespace: loki
+      labels:
+        app.kubernetes.io/part-of: loki
+    spec:
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/component: single-binary
+          app.kubernetes.io/instance: loki
+          app.kubernetes.io/name: loki
+      policyTypes:
+        - Ingress
+      ingress:
+        # Loki's own namespace (memberlist and gRPC between its pods and itself)
+        - from:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: loki
+        # Fluent Bit on every node (push), Grafana and Prometheus (query and metrics scraping)
+        - from:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: fluent-bit
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: monitoring
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: grafana
+          ports:
+            - protocol: TCP
+              port: 3100
+        # the central Grafana on docker-2, HTTP API only
+        - from:
+            - ipBlock:
+                cidr: 10.1.5.123/32
+          ports:
+            - protocol: TCP
+              port: 3100
+loki:
+  limits_config:
+    retention_period: 168h              # 7 days; the compactor deletes older data
+singleBinary:
+  replicas: 1
+  priorityClassName: addons-critical
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  persistence:
+    size: 10Gi
+    storageClass: longhorn

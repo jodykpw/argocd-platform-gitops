@@ -1,0 +1,36 @@
+# External Secrets Operator (chart external-secrets/external-secrets 2.12.0, app v2.12.0). Checked against
+# `helm show values` and `helm template`. Plan, decisions, GitLab setup and test: docs/external-secrets.md,
+# tests/external-secrets.sh.
+
+installCRDs: true            # SecretStore, ClusterSecretStore, ExternalSecret and the generators (v1)
+
+# Only what is used. A ClusterExternalSecret copies a Secret into every namespace a selector matches, a PushSecret
+# writes cluster Secrets OUT to a store, and a ClusterGenerator is a cluster wide generator: none is needed, and turning
+# the controllers off means a tenant (or a typo) cannot use them even if the RBAC were widened later.
+processClusterExternalSecret: false
+processPushSecret: false
+processClusterPushSecret: false
+processClusterGenerator: false
+processClusterStore: true     # the platform's own ClusterSecretStore (platform namespaces only, docs/external-secrets.md)
+
+# The chart aggregates rights on stores, ClusterSecretStores and EVERY generator into the built-in view, edit and admin
+# roles, which would hand them to tenant owners and developers. Off: tenants get exactly ExternalSecret and SecretStore
+# from tenant-baseline/external-secrets-rbac.yaml. (Found by tests/external-secrets.sh: generators were creatable.)
+rbac:
+  aggregateToView: false
+  aggregateToEdit: false
+  aggregateToAdmin: false
+
+serviceMonitor:
+  enabled: true              # the stack accepts monitors from any namespace
+metrics:
+  listen:
+    port: 8080
+
+webhook:
+  serviceMonitor:
+    enabled: true
+
+certController:
+  serviceMonitor:
+    enabled: true

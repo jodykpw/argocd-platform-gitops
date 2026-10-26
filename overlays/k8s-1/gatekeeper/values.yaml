@@ -1,0 +1,51 @@
+# Gatekeeper on k8s-1: replicas, resources and the namespaces its webhook skips. The base keeps only the generic
+# settings (docs/repo-layout.md).
+replicas: 3
+
+# Namespaces the validating webhook does not call at all (the chart adds gatekeeper-system itself). Every platform
+# namespace is listed so that a Gatekeeper outage can never block a platform pod; tenant namespaces and `default` are
+# not. A NEW PLATFORM NAMESPACE must be added here (docs/gatekeeper.md, "Adding a namespace").
+validatingWebhookExemptNamespacesLabels:
+  kubernetes.io/metadata.name:
+    - argo-rollouts
+    - argocd
+    - capsule-system
+    - cnpg-system
+    - databases
+    - external-secrets
+    - fluent-bit
+    - garage
+    - grafana
+    - headlamp
+    - jaeger
+    - keda
+    - kube-node-lease
+    - kube-public
+    - kube-system
+    - loki
+    - longhorn-system
+    - metallb-system
+    - monitoring
+    - nfs-provisioner
+    - reloader
+    - renovate
+    - traefik
+    - trivy-system
+    - velero
+
+controllerManager:
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          gatekeeper.sh/operation: webhook
+  resources:
+    requests: {cpu: 50m, memory: 256Mi}
+    limits: {memory: 512Mi}
+
+audit:
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 512Mi}

@@ -1,0 +1,13 @@
+# Headlamp's OIDC settings: the whole Secret comes from the group variable `headlamp_oidc` (a JSON object with the eight
+# OIDC_* keys the chart reads through envFrom). Merge adopts the existing Secret; Reloader restarts Headlamp on a change.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: headlamp-oidc
+  namespace: headlamp
+spec:
+  refreshInterval: 1h
+  secretStoreRef: {name: gitlab-platform, kind: ClusterSecretStore}
+  target: {name: headlamp-oidc, creationPolicy: Merge}
+  dataFrom:
+    - extract: {key: headlamp_oidc}

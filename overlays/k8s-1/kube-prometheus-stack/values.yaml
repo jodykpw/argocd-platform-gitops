@@ -1,0 +1,338 @@
+# kube-prometheus-stack on k8s-1.
+# Grafana: https://grafana-k8s.jodywan.com/ (DNS in Cloudflare, HAProxy on pfSense, Authentik OIDC in phase 2).
+# Phase 1 login is the local admin from the Secret `grafana-admin`; phase 2 adds Authentik (docs).
+
+# etcd runs as a systemd service on the control planes (plain-HTTP metrics on :2381, docs/control-plane-metrics.md),
+# so the chart gets the addresses instead of a selector.
+kubeEtcd:
+  endpoints: [10.1.5.151, 10.1.5.152, 10.1.5.153]
+
+# The whole list is here on purpose: Helm replaces lists, it does not merge them.
+# LAN access to the Thanos Querier for the central Grafana on docker-2 (grafana.jodywan.com, 10.1.5.123).
+# The Querier has NO authentication, so access is limited twice: it is only a LAN address (MetalLB, not routed
+# through Traefik or HAProxy, not public), and a NetworkPolicy lets only docker-2 and the pods of this namespace
+# reach it. `externalTrafficPolicy: Local` keeps the client's source IP, which the policy matches on.
+# Name: thanos-query-k8s.jodywan.com -> 10.1.5.172 (a DNS-only A record to the private address, or a pfSense
+# override). Data source in the docker-2 Grafana: type Prometheus, URL http://thanos-query-k8s.jodywan.com
+# (port 80, plain HTTP on the LAN; docs/thanos.md). Deliberately NOT published through HAProxy or Traefik.
+# These objects belong to Thanos but live here because the Thanos chart cannot set externalTrafficPolicy.
+extraManifests:
+  # Traefik metrics: Traefik already serves them on its `metrics` entry point (container port 9100, started with
+  # --metrics.prometheus=true) but nothing scraped them. A PodMonitor needs no change to Traefik (layer 0).
+  # Used by the Traefik dashboard (dashboards/platform/traefik.json).
+  - apiVersion: monitoring.coreos.com/v1
+    kind: PodMonitor
+    metadata:
+      name: traefik
+      namespace: monitoring
+      labels:
+        app.kubernetes.io/part-of: traefik
+    spec:
+      namespaceSelector:
+        matchNames:
+          - traefik
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: traefik
+      podMetricsEndpoints:
+        - port: metrics
+          path: /metrics
+          interval: 30s
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: thanos-query-lan
+      namespace: monitoring
+      labels:
+        app.kubernetes.io/name: thanos-query-lan
+        app.kubernetes.io/part-of: thanos
+      annotations:
+        metallb.universe.tf/loadBalancerIPs: 10.1.5.172
+    spec:
+      type: LoadBalancer
+      externalTrafficPolicy: Local
+      ports:
+        - name: http
+          port: 80                 # the URL needs no port; the pod listens on 10902
+          targetPort: http
+          protocol: TCP
+      selector:
+        app.kubernetes.io/component: query
+        app.kubernetes.io/instance: thanos
+        app.kubernetes.io/name: thanos
+  - apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: thanos-query-ingress
+      namespace: monitoring
+      labels:
+        app.kubernetes.io/part-of: thanos
+    spec:
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/component: query
+          app.kubernetes.io/instance: thanos
+          app.kubernetes.io/name: thanos
+      policyTypes:
+        - Ingress
+      ingress:
+        # Prometheus (scrapes the metrics) and the other Thanos pods of this namespace, Grafana (own namespace
+        #) and the Argo Rollouts controller (Prometheus analysis provider)
+        - from:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: monitoring
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: grafana
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: argo-rollouts
+        # the central Grafana on docker-2, HTTP API only
+        - from:
+            - ipBlock:
+                cidr: 10.1.5.123/32
+          ports:
+            - protocol: TCP
+              port: 10902
+  # Platform alerts that the chart does not have. The chart's own rules (nodes, API server, kubelet, volumes
+  # filling, crash loops, certificate expiry) are already on. Velero and Thanos metrics are scraped.
+  - apiVersion: monitoring.coreos.com/v1
+    kind: PrometheusRule
+    metadata:
+      name: platform-alerts
+      namespace: monitoring
+      labels:
+        app.kubernetes.io/part-of: platform
+        release: kube-prometheus-stack
+    spec:
+      groups:
+        - name: platform-backups
+          rules:
+            - alert: VeleroBackupTooOld
+              expr: time() - max(velero_backup_last_successful_timestamp{schedule="velero-daily"}) > 129600
+              for: 15m
+              labels: {severity: warning}
+              annotations:
+                summary: The last good Velero backup is older than 36 hours
+                description: The daily schedule runs at 02:30. See the dashboard Velero (k8s-1) and docs/velero.md.
+            - alert: VeleroBackupFailed
+              expr: max(velero_backup_last_status{schedule="velero-daily"}) == 0
+              for: 5m
+              labels: {severity: warning}
+              annotations:
+                summary: The last scheduled Velero backup failed
+                description: "`kubectl -n velero get backups.velero.io` and the Velero logs show why."
+            - alert: VeleroBackupLocationUnavailable
+              expr: min(velero_backup_location_status_gauge) == 0
+              for: 15m
+              labels: {severity: warning}
+              annotations:
+                summary: Velero cannot reach its backup bucket
+                description: The Garage on docker-2 (10.1.5.123:3910) is down or the key was rejected (docs/backup-target.md).
+            - alert: VeleroDown
+              expr: absent(up{job="velero"} == 1)
+              for: 10m
+              labels: {severity: warning}
+              annotations:
+                summary: Velero is not running or not scraped
+        - name: platform-longhorn
+          rules:
+            - alert: LonghornVolumeDegraded
+              expr: longhorn_volume_robustness{state="degraded"} == 1
+              for: 15m
+              labels: {severity: warning}
+              annotations:
+                summary: 'Longhorn volume {{ `{{ $labels.pvc_namespace }}/{{ $labels.pvc }}` }} is degraded'
+                description: A replica is missing or rebuilding. With 2 replicas and 3 workers it should rebuild by itself; check the Longhorn UI.
+            - alert: LonghornVolumeFaulted
+              expr: longhorn_volume_robustness{state="faulted"} == 1
+              for: 1m
+              labels: {severity: critical}
+              annotations:
+                summary: 'Longhorn volume {{ `{{ $labels.pvc_namespace }}/{{ $labels.pvc }}` }} is faulted (no usable replica)'
+            - alert: LonghornNodeNotReady
+              expr: longhorn_node_status{condition="ready"} == 0
+              for: 10m
+              labels: {severity: warning}
+              annotations:
+                summary: 'Longhorn node {{ `{{ $labels.node }}` }} is not ready'
+            - alert: LonghornDiskFilling
+              expr: longhorn_disk_usage_bytes / longhorn_disk_capacity_bytes > 0.80
+              for: 30m
+              labels: {severity: warning}
+              annotations:
+                summary: 'Longhorn disk on {{ `{{ $labels.node }}` }} is above 80% full'
+                description: Each worker has a 100 GB data disk at /mnt/longhorn (docs/storage-longhorn.md).
+            - alert: LonghornBackupTargetUnavailable
+              expr: longhorn_backup_target_status{condition="unavailable"} == 1
+              for: 15m
+              labels: {severity: warning}
+              annotations:
+                summary: The Longhorn backup target (TrueNAS NFS k8s-1-longhorn-backup) is unavailable
+            - alert: LonghornBackupTooOld
+              # last_backup_at is 0 until a volume's first backup, so those are skipped on purpose. Only the
+              # volumes in the backup group (docs/storage-longhorn.md): update the pvc list when it changes.
+              expr: |
+                (longhorn_volume_last_backup_at{pvc=~"grafana|alertmanager-.*|data-garage-0|meta-garage-0"} > 0)
+                and (time() - longhorn_volume_last_backup_at > 129600)
+              for: 15m
+              labels: {severity: warning}
+              annotations:
+                summary: 'Last Longhorn backup of {{ `{{ $labels.pvc_namespace }}/{{ $labels.pvc }}` }} is older than 36 hours'
+                description: The recurring job backup-daily runs at 01:30. Check the Longhorn UI, Backup tab, and the backup target.
+        - name: platform-probes
+          rules:
+            - alert: ProbeFailed
+              expr: probe_success == 0
+              for: 5m
+              labels: {severity: warning}
+              annotations:
+                summary: 'Probe {{ `{{ $labels.instance }}` }} ({{ `{{ $labels.probe_group }}` }}) has failed for 5 minutes'
+                description: blackbox-exporter in monitoring tests it every minute from inside the cluster (docs/blackbox-exporter.md).
+            - alert: ProbeCertificateExpiresSoon
+              expr: (probe_ssl_earliest_cert_expiry > 0) and (probe_ssl_earliest_cert_expiry - time() < 14 * 86400)
+              for: 1h
+              labels: {severity: warning}
+              annotations:
+                summary: 'The TLS certificate of {{ `{{ $labels.instance }}` }} expires in less than 14 days'
+            - alert: ProbeCertificateExpiresVerySoon
+              expr: (probe_ssl_earliest_cert_expiry > 0) and (probe_ssl_earliest_cert_expiry - time() < 3 * 86400)
+              for: 10m
+              labels: {severity: critical}
+              annotations:
+                summary: 'The TLS certificate of {{ `{{ $labels.instance }}` }} expires in less than 3 days'
+        - name: platform-services
+          rules:
+            - alert: ThanosCompactorHalted
+              expr: thanos_compact_halted == 1
+              for: 5m
+              labels: {severity: warning}
+              annotations:
+                summary: The Thanos compactor halted
+                description: It stopped after an error and needs a look (docs/thanos.md); object storage stops being compacted.
+            - alert: ContainerOOMKilled
+              expr: |
+                (increase(kube_pod_container_status_restarts_total[15m]) > 0)
+                and on (namespace, pod, container)
+                (kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1)
+              labels: {severity: warning}
+              annotations:
+                # extraManifests goes through Helm tpl: the Prometheus template is wrapped in a Helm string
+                summary: '{{ `{{ $labels.namespace }}/{{ $labels.pod }} ({{ $labels.container }})` }} was OOMKilled'
+                description: Raise its memory limit (Grafana and Capsule Proxy needed this before).
+prometheusOperator:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+prometheus:
+  prometheusSpec:
+    replicas: 1
+    # Local buffer only: the Thanos sidecar uploads every 2 h block to the Garage bucket `thanos` (7 days kept
+    # there, docs/thanos.md). 12h survives a sidecar or Garage outage of about 10 h.
+    retention: 12h
+    retentionSize: 3GB             # guard: old blocks go before the 4 GiB volume fills
+    thanos:
+      resources:
+        requests:
+          cpu: 25m
+          memory: 128Mi
+        limits:
+          memory: 320Mi
+    priorityClassName: addons-critical   # tenants must not evict monitoring
+    resources:
+      requests:
+        cpu: 200m
+        memory: 1280Mi
+      limits:
+        memory: 2304Mi     # a week peaked at 1465Mi
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: longhorn
+          resources:
+            requests:
+              storage: 4Gi
+    # Added to every series Thanos serves: gives the dashboards their `cluster` variable, and keeps the stores
+    # unique if a second cluster is ever added.
+    externalLabels:
+      cluster: k8s-1
+alertmanager:
+  alertmanagerSpec:
+    replicas: 1
+    priorityClassName: addons-critical
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 128Mi
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: longhorn
+          resources:
+            requests:
+              storage: 1Gi
+    # Secret `alertmanager-smtp` (key `password`) in namespace monitoring, created by hand (docs/alerting.md).
+    # Mounted at /etc/alertmanager/secrets/alertmanager-smtp/.
+    secrets:
+      - alertmanager-smtp
+  # Mail through Gmail SMTP. Warning and critical go to the mail receiver; Watchdog (the always-firing "is alerting
+  # alive" alert) and InfoInhibitor go nowhere. This replaces the chart's default config, so the chart's inhibit
+  # rules are repeated here. Maps merge across values files, lists replace: keep the whole config in this file.
+  config:
+    global:
+      resolve_timeout: 5m
+      smtp_smarthost: smtp.gmail.com:587
+      smtp_from: jody.kpw@gmail.com
+      smtp_auth_username: jody.kpw@gmail.com
+      smtp_auth_password_file: /etc/alertmanager/secrets/alertmanager-smtp/password
+      smtp_require_tls: true
+    inhibit_rules:
+      - source_matchers: ['severity = critical']
+        target_matchers: ['severity =~ warning|info']
+        equal: [namespace, alertname]
+      - source_matchers: ['severity = warning']
+        target_matchers: ['severity = info']
+        equal: [namespace, alertname]
+      - source_matchers: ['alertname = InfoInhibitor']
+        target_matchers: ['severity = info']
+        equal: [namespace]
+      - target_matchers: ['alertname = InfoInhibitor']
+    route:
+      receiver: "null"
+      group_by: [namespace]
+      group_wait: 2m
+      group_interval: 30m
+      repeat_interval: 24h
+      routes:
+        - receiver: "null"
+          matchers: ['alertname =~ "Watchdog|InfoInhibitor"']
+        - receiver: mail
+          matchers: ['severity =~ "warning|critical"']
+    receivers:
+      - name: "null"
+      - name: mail
+        email_configs:
+          - to: jody.kpw@gmail.com
+            send_resolved: true
+    templates:
+      - /etc/alertmanager/config/*.tmpl
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 20m
+      memory: 32Mi
+    limits:
+      memory: 128Mi

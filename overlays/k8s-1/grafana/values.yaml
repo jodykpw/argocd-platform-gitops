@@ -1,0 +1,211 @@
+# Grafana on k8s-1: hostname, Authentik URLs, the tenant organizations, their data sources and file providers.
+# Everything the base keeps is generic (Grafana settings, the platform data sources are here too because the list
+# is one value).
+route:
+  main:
+    hostnames:
+      - grafana-k8s.jodywan.com
+
+grafana.ini:
+  server:
+    root_url: https://grafana-k8s.jodywan.com/   # TLS ends at HAProxy
+  auth:
+    signout_redirect_url: https://authentik.jodywan.com/application/o/grafana-k8s-oauth-app/end-session/
+  auth.generic_oauth:
+    auth_url: https://authentik.jodywan.com/application/o/authorize/
+    token_url: https://authentik.jodywan.com/application/o/token/
+    api_url: https://authentik.jodywan.com/application/o/userinfo/
+    org_mapping: >-
+      cluster-admin:*:Admin
+      zeedlogic-owners:zeedlogic:Editor
+      zeedlogic-developers:zeedlogic:Editor
+      zeedlogic-viewers:zeedlogic:Editor
+      jodywan-owners:jodywan:Editor
+      jodywan-developers:jodywan:Editor
+      jodywan-viewers:jodywan:Editor
+    enabled: true
+    name: Authentik
+    allow_sign_up: true
+    auto_login: false
+    scopes: openid profile email
+    use_pkce: true
+    login_attribute_path: preferred_username
+    email_attribute_path: email
+    name_attribute_path: name
+    # Authentik only lets group cluster-admin open the application; those users become Grafana admins.
+    # A user without the group gets no role, so nothing opens by accident if the Authentik binding changes.
+    role_attribute_path: "contains(groups[*], 'cluster-admin') && 'GrafanaAdmin' || 'None'"
+    role_attribute_strict: true
+    allow_assign_grafana_admin: true
+    # Tenants: the Authentik groups in the token choose the organization and the role. A tenant
+    # user lands ONLY in the organization of their tenant, as Editor (owners, developers and,
+    # viewers: Grafana's Viewer role has no Explore), never in Main Org., and never Admin (an organization Admin
+    # could edit data sources and so the Loki tenant header). The Kubernetes rights of a viewer stay read-only. The platform team (cluster-admin) is Admin in every organization. A group that is not listed here
+    # and is not cluster-admin gets no role and cannot log in (role_attribute_strict).
+    org_attribute_path: groups
+
+# Mounts: the starter dashboard of every tenant organization (from base) and the ZeedLogic dashboards of the zeedlogic organization
+# (docs/zeedlogic-observability.md). The whole list is here on purpose: Helm replaces lists, it does not merge them.
+extraConfigmapMounts:
+  - name: tenant-dashboards
+    mountPath: /var/lib/grafana/dashboards/tenant
+    configMap: tenant-dashboards
+    readOnly: true
+  - name: zeedlogic-dashboards
+    mountPath: /var/lib/grafana/dashboards/zeedlogic
+    configMap: zeedlogic-dashboards
+    readOnly: true
+
+# One provider per tenant organization (orgId 2 = zeedlogic, 3 = jodywan, see tenant-observability/grafana-orgs.sh).
+# The whole list is here on purpose: Helm replaces lists, it does not merge them.
+dashboardProviders:
+  dashboardproviders.yaml:
+    apiVersion: 1
+    providers:
+      - name: tenant-zeedlogic
+        orgId: 2
+        folder: ''
+        type: file
+        disableDeletion: true
+        allowUiUpdates: false
+        options: {path: /var/lib/grafana/dashboards/tenant}
+      - name: tenant-jodywan
+        orgId: 3
+        folder: ''
+        type: file
+        disableDeletion: true
+        allowUiUpdates: false
+        options: {path: /var/lib/grafana/dashboards/tenant}
+      # The ZeedLogic dashboards for the zeedlogic organization (the platform organization gets them through the sidecar).
+      - name: zeedlogic-dashboards
+        orgId: 2
+        folder: ZeedLogic
+        type: file
+        disableDeletion: true
+        allowUiUpdates: false
+        options: {path: /var/lib/grafana/dashboards/zeedlogic}
+
+# The whole list is here on purpose: Helm replaces lists, it does not merge them.
+# Data sources, provisioned from this file. Moved unchanged from the stack's values (uids are what the dashboards
+# use). Alertmanager was provisioned by the stack's default data source block and stays listed so it
+# is not left behind as an unmanaged entry in Grafana's database.
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      # Metrics through the Thanos Querier (last 12 h from the sidecar, 7 days from the Store Gateway), not straight
+      # to Prometheus. UID `prometheus` is what the default dashboards reference.
+      # Loki is multi-tenant: one data source that queries all tenants at once (platform team only, org 1). The
+      # header is not a secret; it lists the tenants. The per-tenant data sources for the tenant organizations
+      # follow below.
+      - name: Alertmanager
+        uid: alertmanager
+        type: alertmanager
+        access: proxy
+        url: http://kube-prometheus-stack-alertmanager.monitoring:9093/
+        jsonData:
+          handleGrafanaManagedAlerts: false
+          implementation: prometheus
+      - name: Prometheus
+        uid: prometheus
+        type: prometheus
+        access: proxy
+        isDefault: true
+        url: http://thanos-query.monitoring.svc.cluster.local:10902
+        jsonData:
+          httpMethod: POST
+          timeInterval: 30s
+      # The same Thanos Querier under an explicit name, so it is easy to find in Connections > Data sources.
+      # `Prometheus` above (default, UID `prometheus`) already goes through the Querier as well; this one only adds
+      # the visible name and is not used by the default dashboards.
+      - name: Thanos
+        uid: thanos
+        type: prometheus
+        access: proxy
+        isDefault: false
+        url: http://thanos-query.monitoring.svc.cluster.local:10902
+        jsonData:
+          httpMethod: POST
+          timeInterval: 30s
+          prometheusType: Thanos
+      # Traces (Jaeger v2 in the namespace jaeger, Badger storage, 3 days). Only reachable through Grafana.
+      - name: Jaeger
+        uid: jaeger
+        type: jaeger
+        access: proxy
+        url: http://jaeger.jaeger.svc.cluster.local:16686
+      - name: Loki
+        uid: loki
+        type: loki
+        access: proxy
+        url: http://loki.loki.svc.cluster.local:3100
+        jsonData:
+          httpHeaderName1: X-Scope-OrgID
+          maxLines: 1000
+        secureJsonData:
+          httpHeaderValue1: platform|zeedlogic|jodywan
+      # --- Tenant organizations (Grafana orgs `zeedlogic` = 2 and `jodywan` = 3, created through the API by
+      # tenant-observability/grafana-orgs.sh BEFORE this is synced: provisioning into a missing org stops Grafana).
+      # Each org sees only its own tenant. Metrics go through prom-label-proxy (namespace fixed to the tenant's three
+      # namespaces), logs through the Loki tenant header. Not editable: an org Admin could otherwise change the
+      # header or URL, so tenant users get Editor or Viewer only, never Admin. docs/tenant-observability.md.
+      - name: Prometheus
+        uid: prometheus
+        orgId: 2
+        type: prometheus
+        access: proxy
+        isDefault: true
+        editable: false
+        url: http://prom-label-proxy-zeedlogic.monitoring.svc.cluster.local:8080
+        jsonData:
+          httpMethod: POST
+          timeInterval: 30s
+      - name: Loki
+        uid: loki
+        orgId: 2
+        type: loki
+        access: proxy
+        editable: false
+        url: http://loki.loki.svc.cluster.local:3100
+        jsonData:
+          httpHeaderName1: X-Scope-OrgID
+          maxLines: 1000
+        secureJsonData:
+          httpHeaderValue1: zeedlogic
+      - name: Prometheus
+        uid: prometheus
+        orgId: 3
+        type: prometheus
+        access: proxy
+        isDefault: true
+        editable: false
+        url: http://prom-label-proxy-jodywan.monitoring.svc.cluster.local:8080
+        jsonData:
+          httpMethod: POST
+          timeInterval: 30s
+      - name: Loki
+        uid: loki
+        orgId: 3
+        type: loki
+        access: proxy
+        editable: false
+        url: http://loki.loki.svc.cluster.local:3100
+        jsonData:
+          httpHeaderName1: X-Scope-OrgID
+          maxLines: 1000
+        secureJsonData:
+          httpHeaderValue1: jodywan
+persistence:
+  storageClassName: longhorn
+  size: 2Gi
+resources:
+  requests:
+    cpu: 50m
+    memory: 384Mi
+  limits:
+    memory: 768Mi        # 384Mi was OOMKilled 5 times (plugins, dashboards, OIDC)
+# Authentik OIDC (phase 2). Client ID and secret come from the Secret grafana-oidc (created by hand, never in
+# Git) as the env vars GF_AUTH_GENERIC_OAUTH_CLIENT_ID and GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET.
+# The Secret must exist BEFORE this is synced, or the Grafana pod stays in CreateContainerConfigError.
+envFromSecrets:
+  - name: grafana-oidc

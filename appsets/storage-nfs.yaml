@@ -1,0 +1,51 @@
+# NFS StorageClass for file (ReadWriteMany) storage, on the TrueNAS dataset byte-haven/k8s-1-nfs. (layer 1)
+# Auto-sync ON (after tests/storage-nfs.sh passed), with prune OFF: a removed file must
+# never delete the StorageClass or a volume. A chart version bump (targetRevision) syncs automatically,
+# so review every bump in a merge request.
+# The chart repo must be listed in bootstrap/platform-project.yaml (sourceRepos) and that file applied.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: storage-nfs
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'storage-nfs'
+    spec:
+      project: platform
+      sources:
+        - repoURL: https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/
+          chart: nfs-subdir-external-provisioner
+          targetRevision: "4.0.18"
+          helm:
+            releaseName: nfs-subdir-external-provisioner
+            valueFiles:
+              - $values/base/storage-nfs/values.yaml
+              - $values/overlays/{{ .cluster }}/storage-nfs/values.yaml
+        - repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: '{{ .server }}'
+        namespace: nfs-provisioner
+      syncPolicy:
+        automated:
+          prune: false        # never delete anything because a file was removed
+          selfHeal: false
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - PruneLast=true
+        managedNamespaceMetadata:
+          labels:
+            pod-security.kubernetes.io/enforce: baseline

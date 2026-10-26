@@ -1,0 +1,17 @@
+# External Secrets on k8s-1: replicas, resources, retention and storage of this cluster. The base keeps only the generic settings
+# (docs/repo-layout.md).
+# One replica of each part: this cluster is small and the operator only reconciles; a restart delays a refresh.
+replicaCount: 1
+resources:
+  requests: {cpu: 25m, memory: 64Mi}
+  limits: {memory: 256Mi}
+webhook:
+  replicaCount: 1
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {memory: 128Mi}
+certController:
+  replicaCount: 1
+  resources:
+    requests: {cpu: 10m, memory: 64Mi}
+    limits: {memory: 192Mi}

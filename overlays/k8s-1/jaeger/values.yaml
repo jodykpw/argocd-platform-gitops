@@ -1,0 +1,94 @@
+# Jaeger on k8s-1. Badger volume 5 GiB on Longhorn (2 replicas = 10 GiB raw), 3 days of spans.
+# Reached only through Grafana (data source Jaeger in kube-prometheus-stack): no route, no public hostname.
+jaeger:
+  replicas: 1                # Badger cannot be shared; the Deployment strategy is Recreate (chart default)
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+userconfig:
+  extensions:
+    jaeger_storage:
+      backends:
+        primary_store:
+          badger:
+            ttl:
+              spans: 72h              # retention: 3 days
+# The Badger volume and the policy that keeps tenants (and everything else) away from the OTLP and query ports.
+extraObjects:
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: jaeger-badger
+      namespace: jaeger
+      labels:
+        app.kubernetes.io/part-of: jaeger
+    spec:
+      accessModes: [ReadWriteOnce]
+      storageClassName: longhorn      # class is Retain: the data survives a removed app
+      resources:
+        requests:
+          storage: 5Gi
+  - apiVersion: monitoring.coreos.com/v1
+    kind: ServiceMonitor
+    metadata:
+      name: jaeger
+      namespace: jaeger
+      labels:
+        app.kubernetes.io/part-of: jaeger
+    spec:
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: jaeger
+          app.kubernetes.io/instance: jaeger
+          app.kubernetes.io/component: all-in-one
+      endpoints:
+        - port: internal-metrics
+          interval: 30s
+  # Jaeger has no authentication on OTLP (anyone can push spans) or on the query API (anyone can read traces).
+  # Only this namespace (the test pod) and `monitoring` (Grafana queries on 16686, Prometheus scrapes 8888) may
+  # connect, plus Traefik (namespace traefik) on the OTLP gRPC port 4317 only: it sends spans for the requests it
+  # routes (layer 0 setting in ~/kubernetes/traefik/values.yaml, docs/jaeger.md). Opening 4317 and 4318 to a
+  # tenant namespace is a deliberate change here: zeedlogic-dev was opened on 2026-10-19 (the third rule below), as
+  # a write-only exception: tenants still cannot read traces, because Jaeger is read only through the platform
+  # Grafana organization (docs/zeedlogic-observability.md). Any other tenant namespace needs its own decision.
+  - apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: jaeger-ingress
+      namespace: jaeger
+      labels:
+        app.kubernetes.io/part-of: jaeger
+    spec:
+      podSelector: {}
+      policyTypes:
+        - Ingress
+      ingress:
+        - from:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: jaeger
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: monitoring
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: grafana
+        - from:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: traefik
+          ports:
+            - protocol: TCP
+              port: 4317
+        - from:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: zeedlogic-dev
+          ports:
+            - protocol: TCP
+              port: 4317
+            - protocol: TCP
+              port: 4318

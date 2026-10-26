@@ -1,0 +1,23 @@
+# The ZeedLogic database inside jodywan-dev-pg, owned by the role zeedlogic_root (the owner the core seed assigns).
+# It starts EMPTY: the chart's seed Job (fastapi.bootstrap.seed.enabled) restores the core seed into it.
+# The extensions are declared here (as in zeedlogic-dev-pg-zeedlogic.yaml) because that Job connects as zeedlogic_root, which is not a
+# superuser, and PostGIS is not a "trusted" extension: the operator creates them as the superuser, the seed's
+# `CREATE EXTENSION IF NOT EXISTS` lines are then no-ops. Added 2026-10-20: before that this database was seeded by hand as the superuser,
+# and a reset of the database left it without extensions. The order matters: postgis_tiger_geocoder needs fuzzystrmatch first.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: jodywan-dev-pg-zeedlogic
+  namespace: databases
+  labels: {app.kubernetes.io/part-of: databases}
+spec:
+  name: zeedlogic
+  owner: zeedlogic_root
+  cluster:
+    name: jodywan-dev-pg
+  extensions:
+    - {name: fuzzystrmatch, ensure: present}
+    - {name: postgis, ensure: present}
+    - {name: postgis_topology, ensure: present}
+    - {name: postgis_tiger_geocoder, ensure: present}
+    - {name: uuid-ossp, ensure: present}

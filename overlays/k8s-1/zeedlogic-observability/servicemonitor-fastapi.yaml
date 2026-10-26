@@ -1,0 +1,22 @@
+# fastapi's /metrics (prometheus-fastapi-instrumentator) in the ZeedLogic environments. Tenants cannot create a ServiceMonitor, so the
+# platform owns it; the chart's own ServiceMonitor (global.monitoring.serviceMonitor) stays off on k8s-1. The job label is the
+# Service name, `zeedlogic-fastapi`, which is what the Kubernetes dashboards select on. Prometheus selects every ServiceMonitor in
+# every namespace (selector {}), and the tenant baseline already lets Prometheus reach tenant pods.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: zeedlogic-fastapi
+  namespace: monitoring
+  labels: {app.kubernetes.io/part-of: zeedlogic-observability}
+spec:
+  namespaceSelector:
+    matchNames: [zeedlogic-dev, jodywan-dev]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fastapi
+      app.kubernetes.io/instance: zeedlogic
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s

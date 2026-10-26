@@ -1,0 +1,51 @@
+# Argo Rollouts (layer 1): canary and blue-green delivery with Rollout objects (a Deployment replacement), traffic
+# shifting through the Traefik Gateway (HTTPRoute weights, plugin argoproj-labs/gatewayAPI) and metric analysis against
+# the Thanos Querier. Plan, decisions, tenant model and test: docs/argo-rollouts.md, tests/argo-rollouts.sh.
+# Before the first sync: apply bootstrap/platform-project.yaml (argo-helm chart repo in sourceRepos).
+# Auto-sync ON, prune OFF. keepCRDs is on: removing the app never deletes the Rollout CRD (and every Rollout with it).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: argo-rollouts
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'argo-rollouts'
+    spec:
+      project: platform
+      sources:
+        - repoURL: https://argoproj.github.io/argo-helm
+          chart: argo-rollouts
+          targetRevision: "2.43.6"        # Argo Rollouts v1.10.0
+          helm:
+            releaseName: argo-rollouts
+            valueFiles:
+              - $values/base/argo-rollouts/values.yaml
+              - $values/overlays/{{ .cluster }}/argo-rollouts/values.yaml
+        - repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: '{{ .server }}'
+        namespace: argo-rollouts
+      syncPolicy:
+        automated:
+          prune: false
+          selfHeal: false
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true      # the CRDs are large
+          - PruneLast=true
+        managedNamespaceMetadata:
+          labels:
+            pod-security.kubernetes.io/enforce: baseline

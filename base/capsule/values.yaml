@@ -1,0 +1,19 @@
+# Capsule (layer 0), chart capsule 0.14.6 (appVersion 0.14.6). Minimum that is true on any cluster; the user groups,
+# replicas, resources and placement are in overlays/<cluster>/capsule/.
+# `capsuleUserGroups` is deprecated in this chart; `manager.options.users` replaces it.
+#
+# cert-manager is not installed on this cluster, so Capsule generates and rotates its own
+# webhook certificate. The chart refuses to enable both (templates/validate.yaml).
+certManager:
+  generateCertificates: false
+tls:
+  create: true
+  enableController: true
+
+manager:
+  options:
+    # Namespaces of a tenant must be named <tenant>-<something>.
+    forceTenantPrefix: true
+
+    # Owners cannot promote ServiceAccounts to tenant owners.
+    allowServiceAccountPromotion: false

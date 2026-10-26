@@ -1,0 +1,39 @@
+# Tenant observability (layer 1): per-tenant metrics proxies (prom-label-proxy) in front of the Thanos Querier. The
+# tenants' Grafana organizations and their data sources are in base/kube-prometheus-stack/values.yaml; the
+# organizations themselves are created by tenant-observability/grafana-orgs.sh. Design and test:
+# docs/tenant-observability.md, tests/tenant-observability.sh.
+# Auto-sync ON, prune OFF. Needs kube-prometheus-stack and Thanos first.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: tenant-observability
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'tenant-observability'
+    spec:
+      project: platform
+      source:
+        repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+        targetRevision: main
+        path: tenant-observability
+      destination:
+        server: '{{ .server }}'
+        namespace: monitoring
+      syncPolicy:
+        automated:
+          prune: false
+          selfHeal: false
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}
+        syncOptions:
+          - ServerSideApply=true
+          - PruneLast=true

@@ -1,0 +1,82 @@
+# Jaeger (chart jaegertracing/jaeger 4.13.1, app 2.20.0 = Jaeger v2, built on the OpenTelemetry Collector).
+# Do not move to chart 4.14 / Jaeger 2.21 yet: it dropped the legacy query API that Grafana's Jaeger data source needs.
+# All-in-one: OTLP receiver, storage and query in one pod. Storage: Badger (embedded database) on a Longhorn
+# volume, 3 days of spans. Single replica only: Badger allows one writer.
+# Checked against `helm show values jaegertracing/jaeger --version 4.13.1`, `helm template`, `jaeger validate` and a start
+# of the 2.20.0 image with this config.
+# Plan and test: docs/jaeger.md, tests/jaeger.sh.
+
+jaeger:
+  # The volume is created in `extraObjects` (overlay) and mounted where the Badger config points.
+  extraVolumes:
+    - name: badger
+      persistentVolumeClaim:
+        claimName: jaeger-badger
+  extraVolumeMounts:
+    - name: badger
+      mountPath: /badger
+
+# The whole Jaeger v2 configuration (the chart mounts it as /etc/jaeger/user-config.yaml).
+userconfig:
+  service:
+    extensions: [jaeger_storage, jaeger_query, healthcheckv2]
+    pipelines:
+      traces:
+        receivers: [otlp]
+        processors: [batch]
+        exporters: [jaeger_storage_exporter]
+    telemetry:
+      resource:
+        service.name: jaeger
+      metrics:
+        level: detailed
+        readers:
+          - pull:
+              exporter:
+                prometheus:
+                  host: 0.0.0.0
+                  port: 8888
+      logs:
+        level: info
+  extensions:
+    healthcheckv2:
+      use_v2: true
+      http:
+        endpoint: 0.0.0.0:13133
+    jaeger_query:
+      storage:
+        traces: primary_store
+      # no ui.config_file: the chart mounts /etc/jaeger/ui-config.json only when `uiconfig` is set, and a path to
+      # a file that is not there stops Jaeger at startup.
+    jaeger_storage:
+      backends:
+        primary_store:
+          badger:
+            directories:
+              keys: /badger/keys
+              values: /badger/values
+            ephemeral: false          # false = keep the data on the volume
+            maintenance_interval: 5m
+            metrics_update_interval: 10s
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+  processors:
+    batch: {}
+  exporters:
+    jaeger_storage_exporter:
+      trace_storage: primary_store
+
+# Not used: this chart still renders the Elasticsearch and Cassandra maintenance jobs unless they are off.
+esIndexCleaner:
+  enabled: false
+esRollover:
+  enabled: false
+esLookback:
+  enabled: false
+spark:
+  enabled: false

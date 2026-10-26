@@ -1,0 +1,27 @@
+# Grafana's login Secrets, from two group variables holding a JSON object each (keys become the Secret's keys):
+#   grafana_admin = {"admin-user": "...", "admin-password": "..."}
+#   grafana_oidc  = {"GF_AUTH_GENERIC_OAUTH_CLIENT_ID": "...", "GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET": "..."}
+# creationPolicy Merge adopts the existing Secrets. Grafana restarts through Reloader when a value changes (reloader.md).
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: grafana-admin
+  namespace: grafana
+spec:
+  refreshInterval: 1h
+  secretStoreRef: {name: gitlab-platform, kind: ClusterSecretStore}
+  target: {name: grafana-admin, creationPolicy: Merge}
+  dataFrom:
+    - extract: {key: grafana_admin}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: grafana-oidc
+  namespace: grafana
+spec:
+  refreshInterval: 1h
+  secretStoreRef: {name: gitlab-platform, kind: ClusterSecretStore}
+  target: {name: grafana-oidc, creationPolicy: Merge}
+  dataFrom:
+    - extract: {key: grafana_oidc}

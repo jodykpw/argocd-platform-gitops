@@ -1,0 +1,33 @@
+# Reloader (chart stakater/reloader 2.2.18, app v1.4.22). Checked against `helm show values` and `helm template`.
+# Plan and test: docs/reloader.md, tests/reloader.sh.
+
+reloader:
+  # Opt-in only: a workload is restarted only when it carries one of the reloader.stakater.com/* annotations.
+  # autoReloadAll would restart every workload that uses a changed ConfigMap or Secret, including platform apps.
+  autoReloadAll: false
+
+  # `annotations` writes the change into a pod-template annotation (reloader.stakater.com/last-reloaded-from) instead
+  # of a STAKATER_* environment variable (the `default`/`env-vars` strategies), which pollutes the container spec
+  # that Helm and Argo CD own.
+  reloadStrategy: annotations
+
+  # One replica is enough: it only restarts workloads, and a missed event is caught at its next start.
+  enableHA: false
+  logFormat: json
+  logLevel: info
+
+  # Cluster-wide: tenant namespaces use it too (an owner or developer annotates their own workloads). It only acts
+  # on a workload in the SAME namespace as the changed ConfigMap or Secret, never across namespaces.
+  watchGlobally: true
+
+  deployment:
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop: [ALL]
+
+  # Prometheus scrapes it (metrics on the container port `http`, 9090). The chart renders no Service, so a PodMonitor
+  # (not a ServiceMonitor) is used; the stack accepts monitors from any namespace.
+  podMonitor:
+    enabled: true

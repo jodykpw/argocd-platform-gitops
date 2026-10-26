@@ -1,0 +1,15 @@
+# Longhorn chart 1.13.0: settings common to every cluster.
+# Checked against `helm show values longhorn/longhorn --version 1.13.0`.
+
+# The chart says to disable the pre-upgrade check job when installing with Argo CD.
+preUpgradeChecker:
+  jobEnabled: false
+
+# Uninstall protection: leave `defaultSettings.deletingConfirmationFlag` unset (default is off).
+# Never enable it, so Longhorn cannot be uninstalled by a sync.
+
+# Longhorn manager metrics (volume robustness, backups, disk usage) for Prometheus and the alerts in
+# base/kube-prometheus-stack/values.yaml (platform-alerts). The port is the manager's 9500.
+metrics:
+  serviceMonitor:
+    enabled: true

@@ -1,0 +1,65 @@
+# Garage UI: web console for Garage buckets and keys (layer 1). Auto-sync ON (prune OFF).
+# Needs storage-garage running, and the Secrets garage-admin-token, garage-ui-jwt and garage-ui-oidc in
+# namespace garage (docs/garage-ui.md).
+# It deploys into the namespace `garage`, which the storage-garage app creates and labels: this app does
+# not manage the namespace.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: garage-ui
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'garage-ui'
+    spec:
+      project: platform
+      sources:
+        - repoURL: https://helm.noste.dev/
+          chart: garage-ui
+          targetRevision: "0.13.0"
+          helm:
+            releaseName: garage-ui
+            valueFiles:
+              - $values/base/garage-ui/values.yaml
+              - $values/overlays/{{ .cluster }}/garage-ui/values.yaml
+        - repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: '{{ .server }}'
+        namespace: garage
+      # The Gateway API server adds defaults to the HTTPRoute (parentRefs group/kind, backendRefs
+      # group/kind/weight), which Argo CD shows as OutOfSync although nothing differs.
+      ignoreDifferences:
+        # Reloader writes the time and cause of its last restart into the pod template (docs/reloader.md).
+        - group: apps
+          kind: Deployment
+          name: garage-ui
+          jqPathExpressions:
+            - .spec.template.metadata.annotations."reloader.stakater.com/last-reloaded-from"
+        - group: gateway.networking.k8s.io
+          kind: HTTPRoute
+          jqPathExpressions:
+            - .spec.parentRefs[]?.group
+            - .spec.parentRefs[]?.kind
+            - .spec.rules[]?.backendRefs[]?.group
+            - .spec.rules[]?.backendRefs[]?.kind
+            - .spec.rules[]?.backendRefs[]?.weight
+      syncPolicy:
+        automated:
+          prune: false        # never delete anything because a file was removed
+          selfHeal: false
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}
+        syncOptions:
+          - ServerSideApply=true
+          - PruneLast=true
+          - RespectIgnoreDifferences=true

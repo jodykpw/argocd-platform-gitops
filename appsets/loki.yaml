@@ -1,0 +1,59 @@
+# Loki log store (layer 1). Single binary, filesystem on a Longhorn volume, 7 days retention, multi-tenant
+# (X-Scope-OrgID). Auto-sync ON (after the test passed),
+# prune OFF: a removed file or a wrong sync must never delete the log volume. Review every targetRevision bump. Plan and test: docs/loki.md, tests/loki.sh.
+# Before the first sync: apply bootstrap/platform-project.yaml (grafana chart repo in sourceRepos).
+# Needs Longhorn (class `longhorn`). Nothing else must exist first; Fluent Bit and Grafana come after it.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: loki
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'loki'
+    spec:
+      project: platform
+      sources:
+        - repoURL: https://grafana.github.io/helm-charts
+          chart: loki
+          targetRevision: "7.3.0"
+          helm:
+            releaseName: loki
+            valueFiles:
+              - $values/base/loki/values.yaml
+              - $values/overlays/{{ .cluster }}/loki/values.yaml
+        - repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: '{{ .server }}'
+        namespace: loki
+      # The API server adds defaults to the StatefulSet's volumeClaimTemplates, which Argo CD shows as
+      # OutOfSync. volumeClaimTemplates are immutable anyway.
+      ignoreDifferences:
+        - group: apps
+          kind: StatefulSet
+          jsonPointers:
+            - /spec/volumeClaimTemplates
+      syncPolicy:
+        automated:
+          prune: false        # never delete anything because a file was removed
+          selfHeal: false
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - PruneLast=true
+          - RespectIgnoreDifferences=true
+        managedNamespaceMetadata:
+          labels:
+            pod-security.kubernetes.io/enforce: baseline

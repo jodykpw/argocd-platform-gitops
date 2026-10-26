@@ -1,0 +1,40 @@
+# Capsule on k8s-1 (base: base/capsule/values.yaml).
+# Group names carry the `oidc:` prefix because the API server adds it (oidc-groups-prefix=oidc:, layer0/oidc/config.yaml).
+
+# Capsule's webhooks fail closed (failurePolicy: Fail), and the namespaces/tenants/owners
+# webhooks apply cluster-wide. One pod down would block every namespace create, so run two
+# replicas on different nodes (leader election is on by default), with resources and priority.
+replicaCount: 2
+priorityClassName: system-cluster-critical
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: DoNotSchedule
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: capsule
+        app.kubernetes.io/instance: capsule
+
+manager:
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {memory: 256Mi}
+  options:
+    # Only these groups are treated as Capsule users: tenant quotas and policies apply to them.
+    # The platform team (oidc:cluster-admin) is deliberately not listed.
+    users:
+      - {kind: Group, name: "oidc:zeedlogic-owners"}
+      - {kind: Group, name: "oidc:zeedlogic-developers"}
+      - {kind: Group, name: "oidc:zeedlogic-viewers"}
+      - {kind: Group, name: "oidc:jodywan-owners"}
+      - {kind: Group, name: "oidc:jodywan-developers"}
+      - {kind: Group, name: "oidc:jodywan-viewers"}
+      # Argo CD deployer accounts (Option B, sync impersonation; docs/tenant-gitops.md). Only these
+      # two accounts, NOT the group system:serviceaccounts:argocd: the shared controller must stay outside Capsule
+      # because it also creates the namespaces of the platform apps.
+      - {kind: ServiceAccount, name: "system:serviceaccount:argocd:argocd-deployer-zeedlogic"}
+      - {kind: ServiceAccount, name: "system:serviceaccount:argocd:argocd-deployer-jodywan"}
+
+    # Never apply tenant policies to the platform team, even if one of them is also in a team group.
+    ignoreUserWithGroups:
+      - "oidc:cluster-admin"

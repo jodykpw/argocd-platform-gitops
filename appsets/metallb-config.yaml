@@ -1,0 +1,38 @@
+# MetalLB address pool and L2 advertisement (layer 0). Separate from the chart so the CRDs exist first. The pool is
+# cluster data: overlays/<cluster>/metallb-config/. Moved here from layer0/metallb/.
+# Auto-sync ON, prune OFF. Needs the metallb app first.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: metallb-config
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'metallb-config'
+    spec:
+      project: platform
+      source:
+        repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+        targetRevision: main
+        path: overlays/{{ .cluster }}/metallb-config
+      destination:
+        server: '{{ .server }}'
+        namespace: metallb-system
+      syncPolicy:
+        automated:
+          prune: false
+          selfHeal: false
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}
+        syncOptions:
+          - ServerSideApply=true
+          - SkipDryRunOnMissingResource=true
+          - PruneLast=true

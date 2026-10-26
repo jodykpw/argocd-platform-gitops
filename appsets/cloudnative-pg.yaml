@@ -1,0 +1,60 @@
+# CloudNativePG operator (layer 1): runs PostgreSQL clusters on Kubernetes (HA, failover, backups, PostGIS images).
+# This installs ONLY the operator and its CRDs; each database is a `Cluster` resource created where it is needed.
+# Plan, risks and test: docs/cloudnative-pg.md, tests/cloudnative-pg.sh.
+# Before the first sync: apply bootstrap/platform-project.yaml (the CloudNativePG chart repo is in sourceRepos).
+# Auto-sync ON, prune OFF (tests/cloudnative-pg.sh passed, 12/12, 2026-10-18).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: cloudnative-pg
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'cloudnative-pg'
+    spec:
+      project: platform
+      sources:
+        - repoURL: https://cloudnative-pg.github.io/charts
+          chart: cloudnative-pg
+          targetRevision: "0.29.1"        # CloudNativePG operator 1.30.1
+          helm:
+            releaseName: cnpg
+            valueFiles:
+              - $values/base/cloudnative-pg/values.yaml
+              - $values/overlays/{{ .cluster }}/cloudnative-pg/values.yaml
+        - repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: '{{ .server }}'
+        namespace: cnpg-system
+      # The operator writes the CA bundle of its own certificate into the mutating and validating webhook
+      # configurations at runtime; Argo CD would show them OutOfSync forever.
+      ignoreDifferences:
+        - group: admissionregistration.k8s.io
+          kind: MutatingWebhookConfiguration
+          jqPathExpressions:
+            - .webhooks[]?.clientConfig.caBundle
+        - group: admissionregistration.k8s.io
+          kind: ValidatingWebhookConfiguration
+          jqPathExpressions:
+            - .webhooks[]?.clientConfig.caBundle
+      syncPolicy:
+        automated:
+          prune: false
+          selfHeal: false
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true          # the Cluster CRD is large
+          - PruneLast=true
+          - RespectIgnoreDifferences=true
+        managedNamespaceMetadata:
+          labels:
+            pod-security.kubernetes.io/enforce: baseline

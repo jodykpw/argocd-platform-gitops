@@ -1,0 +1,63 @@
+# kube-prometheus-stack (layer 1): Prometheus operator, Prometheus (2 days now, 12h with Thanos), Alertmanager,
+# node-exporter, kube-state-metrics, default rules and the default dashboards. Grafana is NOT part of it since
+# its own app, appsets/grafana.yaml (docs/grafana.md). Auto-sync ON (prune OFF, no
+# self-heal): review every values or targetRevision change. Plan and test: docs/kube-prometheus-stack.md,
+# tests/kube-prometheus-stack.sh.
+# Before the first sync: apply bootstrap/platform-project.yaml (prometheus-community repo in sourceRepos).
+# Needs Longhorn (class `longhorn`).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'kube-prometheus-stack'
+    spec:
+      project: platform
+      sources:
+        - repoURL: https://prometheus-community.github.io/helm-charts
+          chart: kube-prometheus-stack
+          targetRevision: "92.3.0"
+          helm:
+            releaseName: kube-prometheus-stack
+            valueFiles:
+              - $values/base/kube-prometheus-stack/values.yaml
+              - $values/overlays/{{ .cluster }}/kube-prometheus-stack/values.yaml
+        - repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+          targetRevision: main
+          ref: values
+        # Platform dashboards: kustomize turns dashboards/platform/*.json into labelled ConfigMaps (no Helm involved).
+        - repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+          targetRevision: main
+          path: dashboards/platform
+      destination:
+        server: '{{ .server }}'
+        namespace: monitoring
+      syncPolicy:
+        automated:
+          prune: false        # never delete anything because a file was removed
+          selfHeal: false
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true      # the CRDs are too large for client-side apply (annotation limit)
+          - PruneLast=true
+          - RespectIgnoreDifferences=true
+        managedNamespaceMetadata:
+          labels:
+            # the Traefik Gateway listener only accepts routes from namespaces with this label
+            gateway-access: platform
+            # node-exporter uses hostNetwork, hostPID and hostPath, which `baseline` does not allow
+            pod-security.kubernetes.io/enforce: privileged
+            pod-security.kubernetes.io/audit: privileged
+            pod-security.kubernetes.io/warn: privileged

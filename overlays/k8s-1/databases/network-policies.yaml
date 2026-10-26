@@ -1,0 +1,112 @@
+# Who may reach a database pod. A namespace without a NetworkPolicy is open to everything that can route to it, including
+# a tenant that adds an egress rule of its own, so this namespace is closed on the destination side (the same idea as
+# refuse-tenant-ingress, tenant-baseline/platform-ingress.yaml). Policies only allow, and they add up.
+# Egress is left open on purpose: an instance needs the Kubernetes API, DNS and, later, an object store for backups.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: database-ingress
+  namespace: databases
+  labels: {app.kubernetes.io/part-of: databases}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    # instances of one cluster replicate to each other and report status to each other
+    - from:
+        - podSelector: {}
+    # the operator: instance status on 8000, and a PostgreSQL connection
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: cnpg-system}
+      ports:
+        - {port: 8000, protocol: TCP}
+        - {port: 5432, protocol: TCP}
+    # Prometheus scrapes the instance metrics endpoint
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: monitoring}
+          podSelector:
+            matchLabels: {app.kubernetes.io/name: prometheus}
+      ports:
+        - {port: 9187, protocol: TCP}
+---
+# jodywan-dev may connect to ITS database, and to nothing else in this namespace. One policy per tenant namespace and
+# database: add the next one here, do not widen this one.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-jodywan-dev
+  namespace: databases
+  labels: {app.kubernetes.io/part-of: databases}
+spec:
+  podSelector:
+    matchLabels: {cnpg.io/cluster: jodywan-dev-pg}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: jodywan-dev}
+      ports:
+        - {port: 5432, protocol: TCP}
+---
+# The tenant side. The tenant baseline closes egress, so the namespace needs a rule to leave for its database. A tenant
+# owner could add this too; the platform adds it so the database does not depend on that. The Calico guard does not
+# block it: it denies private ranges except the cluster's own networks (tenant-baseline/tenant-egress-guard.yaml).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-to-database
+  namespace: jodywan-dev
+  labels: {app.kubernetes.io/part-of: databases}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: databases}
+          podSelector:
+            matchLabels: {cnpg.io/cluster: jodywan-dev-pg}
+      ports:
+        - {port: 5432, protocol: TCP}
+---
+# zeedlogic-dev may connect to ITS database, and to nothing else in this namespace (same rule as allow-jodywan-dev).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-zeedlogic-dev
+  namespace: databases
+  labels: {app.kubernetes.io/part-of: databases}
+spec:
+  podSelector:
+    matchLabels: {cnpg.io/cluster: zeedlogic-dev-pg}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: zeedlogic-dev}
+      ports:
+        - {port: 5432, protocol: TCP}
+---
+# The tenant side for zeedlogic-dev (see allow-egress-to-database in jodywan-dev): the baseline closes egress, so the namespace
+# needs a rule to leave for its own database, and only that one.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-to-database
+  namespace: zeedlogic-dev
+  labels: {app.kubernetes.io/part-of: databases}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: databases}
+          podSelector:
+            matchLabels: {cnpg.io/cluster: zeedlogic-dev-pg}
+      ports:
+        - {port: 5432, protocol: TCP}
+

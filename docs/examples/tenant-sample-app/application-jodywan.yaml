@@ -1,0 +1,19 @@
+# The Argo CD application for the jodywan sample app. Application names are unique in the argocd namespace across
+# ALL tenants (this one is sample-app-jodywan; `sample-app` belongs to zeedlogic). Project jodywan-nonprod allows the
+# destination namespace jodywan-dev and the repo group jodywan/**; the sync runs as argocd-deployer-jodywan.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sample-app-jodywan
+  namespace: argocd
+spec:
+  project: jodywan-nonprod
+  source:
+    repoURL: https://gitlab.jodywan.com/jodywan/gitops/sample-app.git
+    targetRevision: main
+    path: .
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: jodywan-dev
+  syncPolicy:
+    syncOptions: [CreateNamespace=false]

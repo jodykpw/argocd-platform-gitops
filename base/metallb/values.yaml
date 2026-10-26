@@ -1,0 +1,7 @@
+# MetalLB (layer 0), chart metallb 0.16.1. Minimum that is true on any cluster; sizing is in overlays/<cluster>/metallb/.
+# The address pool is a separate app (metallb-config, overlays/<cluster>/metallb-config/).
+loadBalancerClass: ""  # optional: only if you're using custom LB classes
+
+# L2 mode only, no BGP: disable the bundled FRR-K8s backend (default in 0.16)
+frrk8s:
+  enabled: false

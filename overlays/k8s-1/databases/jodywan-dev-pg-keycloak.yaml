@@ -1,0 +1,13 @@
+# Keycloak's database inside jodywan-dev-pg, owned by the role `keycloak`. Keycloak creates its own tables on first start,
+# so unlike the zeedlogic database nothing is restored into it.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: jodywan-dev-pg-keycloak
+  namespace: databases
+  labels: {app.kubernetes.io/part-of: databases}
+spec:
+  name: keycloak
+  owner: keycloak
+  cluster:
+    name: jodywan-dev-pg

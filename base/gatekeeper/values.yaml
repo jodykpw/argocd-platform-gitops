@@ -1,0 +1,30 @@
+# Gatekeeper (chart gatekeeper/gatekeeper 3.23.1, app v3.23.1). Checked against `helm show values` and `helm template`.
+# Plan, decisions and test: docs/gatekeeper.md, tests/gatekeeper.sh. Replicas, resources and the namespaces the webhook
+# skips are in overlays/<cluster>/gatekeeper/values.yaml.
+
+# Fail closed, as Kyverno did: a Gatekeeper outage stops pod creation in the namespaces the webhook
+# covers. The webhook sees Pods only (custom rules below), and the overlay exempts every platform namespace, so only
+# tenant namespaces (and `default`) are affected.
+validatingWebhookFailurePolicy: Fail
+validatingWebhookTimeoutSeconds: 5
+validatingWebhookCustomRules:
+  - apiGroups: [""]
+    apiVersions: ["v1"]
+    operations: ["CREATE", "UPDATE"]
+    resources: ["pods"]
+    scope: Namespaced
+
+# Mutation is not used: leave its webhook and controller off.
+disableMutation: true
+
+# Constraints are matched against what is already running every 60 s; results are in the Constraint `status`.
+auditInterval: 60
+constraintViolationsLimit: 100
+metricsBackends: ["prometheus"]
+
+# Not used (no external data providers, no `http.send` in the templates).
+enableExternalData: false
+
+pdb:
+  controllerManager:
+    minAvailable: 2

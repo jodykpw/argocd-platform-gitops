@@ -1,0 +1,32 @@
+# Velero on k8s-1: bucket `velero` on the Garage at 10.1.5.123:3910 (quota 100 GiB), daily at 02:30, kept 7 days.
+
+# The whole list is here on purpose: Helm replaces lists, it does not merge them.
+configuration:
+  backupStorageLocation:
+    - name: default
+      provider: aws
+      bucket: velero
+      default: true
+      config:
+        region: garage
+        s3ForcePathStyle: "true"
+        s3Url: http://10.1.5.123:3910     # Garage on docker-2 (docs/backup-target.md)
+  defaultBackupTTL: 168h
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+# Daily backup of every namespace and the cluster-scoped objects, kept 7 days (dev cluster; objects only, a few
+# MB per backup, so raise it freely if wanted).
+schedules:
+  daily:
+    disabled: false
+    schedule: "30 2 * * *"
+    useOwnerReferencesInBackup: false
+    template:
+      ttl: 168h
+      includeClusterResources: true
+      storageLocation: default
+      snapshotVolumes: false

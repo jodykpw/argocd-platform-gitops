@@ -1,0 +1,88 @@
+# Argo CD (chart argo/argo-cd 10.10.1, app v3.5.4). Values checked against that chart.
+global:
+  domain: argocd.jodywan.com
+
+crds:
+  install: true      # the chart installs and upgrades the CRDs
+  keep: true         # and keeps them on uninstall (Applications would otherwise be deleted)
+
+configs:
+  params:
+    server.insecure: true   # pfSense HAProxy terminates TLS; Traefik talks plain HTTP to argocd-server
+
+  cm:
+    url: https://argocd.jodywan.com
+    # SSO login verified (adminjody@jodywan.com, groups ArgoCD Admins and cluster-admin).
+    # Local admin account switched off. If SSO ever breaks, set this to "true" and run ./deploy.sh.
+    admin.enabled: "false"
+    # Tenant GitOps: applications of a tenant's AppProject are applied as that tenant's deployer
+    # ServiceAccount. enforced "false" keeps the platform project on the controller. Set by
+    # platform-gitops/tenant-gitops/register-deployers.sh; kept here so an upgrade does not drop it.
+    application.sync.impersonation.enabled: "true"
+    application.sync.impersonation.enforced: "false"
+    # Health of an Application resource (the standard snippet for an app of apps). Added for the former layer0 app of
+    # apps; unused since layer 0 moved into appsets/, kept because removing it would roll Argo CD for no gain.
+    resource.customizations.health.argoproj.io_Application: |
+      hs = {}
+      hs.status = "Progressing"
+      hs.message = ""
+      if obj.status ~= nil then
+        if obj.status.health ~= nil then
+          hs.status = obj.status.health.status
+          if obj.status.health.message ~= nil then
+            hs.message = obj.status.health.message
+          end
+        end
+      end
+      return hs
+    # Authentik connector (from the old setup). The client secret is the key dex.authentik.clientSecret
+    # in argocd-secret, added by deploy.sh from patch-secret.yaml (kept out of this file).
+    dex.config: |
+      connectors:
+      - config:
+          issuer: https://authentik.jodywan.com/application/o/argocd-oauth-app/
+          clientID: 4oj4spQG4hQ43lgRpSiKHHvA3YOYSFy5lw3XOfrW
+          clientSecret: $dex.authentik.clientSecret
+          insecureEnableGroups: true
+          scopes:
+            - openid
+            - profile
+            - email
+        name: authentik
+        type: oidc
+        id: authentik
+
+  rbac:
+    scopes: '[groups]'
+    policy.default: ''          # a logged-in user who matches nothing below gets nothing
+    policy.csv: |
+      g, cluster-admin, role:admin
+      g, ArgoCD Admins, role:admin
+      # Tenants get no global rights. Their rights live in their own AppProject (see capsule-argocd-integration.md).
+
+server:
+  replicas: 2
+  pdb:
+    enabled: true
+    minAvailable: 1
+  # Route through the shared Traefik Gateway (Gateway API), not an Ingress.
+  # NOTE: the listener `web` of traefik-gateway currently accepts routes only from the traefik namespace
+  # (allowedRoutes from: Same), so this route stays "not accepted" until the Gateway allows the argocd
+  # namespace. See layer0/argocd/argocd-install.md, "Gateway access".
+  httproute:
+    enabled: true
+    parentRefs:
+      - name: traefik-gateway
+        namespace: traefik
+        sectionName: web
+    hostnames:
+      - argocd.jodywan.com
+
+repoServer:
+  replicas: 2
+  pdb:
+    enabled: true
+    minAvailable: 1
+
+applicationSet:
+  replicas: 1

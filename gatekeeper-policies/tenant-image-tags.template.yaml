@@ -1,0 +1,38 @@
+# Tenant images must carry a version: no `:latest`, no untagged image. A digest (`name@sha256:...`) is accepted.
+# `:latest` moves under a running Deployment, so a node restart or a reschedule can change what runs and the Git history
+# says nothing. Same rule as the Kyverno policy of the same name. Scope (tenant namespaces only)
+# is set in the Constraint, not here. Test: tests/gatekeeper.sh.
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: tenantimagetags
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    description: Images must name a version tag or a digest; ':latest' and untagged images are refused.
+spec:
+  crd:
+    spec:
+      names:
+        kind: TenantImageTags
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package tenantimagetags
+
+        containers[c] { c := input.review.object.spec.containers[_] }
+        containers[c] { c := input.review.object.spec.initContainers[_] }
+        containers[c] { c := input.review.object.spec.ephemeralContainers[_] }
+
+        has_version(image) { contains(image, "@") }
+
+        has_version(image) {
+          parts := split(image, "/")
+          contains(parts[count(parts) - 1], ":")
+          not endswith(image, ":latest")
+        }
+
+        violation[{"msg": msg}] {
+          c := containers[_]
+          not has_version(c.image)
+          msg := sprintf("container <%v>: image <%v> must name a version tag or a digest: ':latest' and untagged images are not allowed", [c.name, c.image])
+        }

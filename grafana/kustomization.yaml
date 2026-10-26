@@ -1,0 +1,36 @@
+# Objects that belong to the Grafana app but are not part of its chart (third source of appsets/grafana.yaml).
+# Two more ConfigMaps hold the ZeedLogic dashboards (docs/zeedlogic-observability.md): `zeedlogic-dashboards` is mounted and provisioned
+# into the zeedlogic tenant organization (no Postgres dashboard there: the database namespace is invisible to the tenant's metrics
+# proxy), and `zeedlogic-dashboards-platform` carries the sidecar label, so the platform organization (Main Org.) gets all five in the
+# folder ZeedLogic. The JSON is generated in the zeedlogic-microservices repo and copied here: ./sync-zeedlogic-dashboards.sh.
+# The first ConfigMap holds the starter dashboard that every tenant organization gets (mounted into Grafana and provisioned
+# per organization, see base/grafana/values.yaml). It must exist before the Grafana pod starts (it is a volume).
+# It was part of tenant-observability, when Grafana got its own namespace.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: grafana
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    app.kubernetes.io/part-of: tenant-observability
+configMapGenerator:
+  - name: tenant-dashboards
+    files: [dashboards/overview.json]
+  - name: zeedlogic-dashboards
+    files:
+      - dashboards/zeedlogic/zeedlogic-k8s-containers.json
+      - dashboards/zeedlogic/zeedlogic-k8s-logs.json
+      - dashboards/zeedlogic/zeedlogic-k8s-erp-demo.json
+      - dashboards/zeedlogic/zeedlogic-k8s-platform.json
+  - name: zeedlogic-dashboards-platform
+    options:
+      labels:
+        grafana_dashboard: "1"
+      annotations:
+        grafana_folder: ZeedLogic
+    files:
+      - dashboards/zeedlogic/zeedlogic-k8s-containers.json
+      - dashboards/zeedlogic/zeedlogic-k8s-logs.json
+      - dashboards/zeedlogic/zeedlogic-k8s-erp-demo.json
+      - dashboards/zeedlogic/zeedlogic-k8s-platform.json
+      - dashboards/zeedlogic/zeedlogic-k8s-postgres.json

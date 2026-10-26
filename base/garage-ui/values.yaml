@@ -1,0 +1,33 @@
+config:
+  server:
+    environment: production
+    protocol: http
+  garage:
+    region: garage
+    # The admin token comes from a Secret created by hand (never in Git). The same token is given to Garage
+    # as GARAGE_ADMIN_TOKEN (base/storage-garage/values.yaml).
+    admin_token: ""
+    existingSecret:
+      name: garage-admin-token
+      key: admin-token
+  auth:
+    # The chart generates a random JWT signing key at render time when no Secret is named. Under Argo CD
+    # (helm template) that changes on every refresh. Use a Secret created by hand (Ed25519 PEM):
+    #   openssl genpkey -algorithm ed25519 | kubectl -n garage create secret generic garage-ui-jwt \
+    #     --from-file=jwt-key.pem=/dev/stdin
+    jwt_private_key_secret:
+      name: garage-ui-jwt
+      key: jwt-key.pem
+    metrics_public: false
+    admin:
+      enabled: false
+  cors:
+    enabled: false            # the UI is same-origin; no cross-origin access needed
+
+service:
+  type: ClusterIP
+
+# Reloader (docs/reloader.md): restart the UI when its admin token, JWT key or OIDC Secret changes (all read as
+# environment variables). The chart only exposes pod annotations; Reloader reads them on the pod template too.
+podAnnotations:
+  secret.reloader.stakater.com/reload: "garage-admin-token,garage-ui-jwt,garage-ui-oidc"

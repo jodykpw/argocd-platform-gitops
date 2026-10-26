@@ -1,0 +1,105 @@
+# Tenant network baseline: replicated by Capsule into EVERY namespace of EVERY tenant (scope: Namespace), so a new
+# namespace gets it at creation. Tenant owners cannot edit or delete the replicated policies (Capsule webhook
+# `replications`), but they can add policies of their own; platform namespaces therefore also limit ingress
+# (tenant-baseline/platform-ingress.yaml). Test: tests/tenant-network.sh. Design: docs/tenant-network.md.
+#
+# What a tenant pod may do:  resolve DNS, reach the internet (not private ranges), reach pods of its own namespace.
+# What may reach a tenant pod: pods of its own namespace, Traefik (namespace traefik), Prometheus (monitoring).
+# Everything else, including the other tenant, the other environments of the same tenant, platform services, the
+# Kubernetes API and the LAN, is refused.
+apiVersion: capsule.clastix.io/v1beta2
+kind: GlobalTenantResource
+metadata:
+  name: network-baseline
+spec:
+  scope: Namespace
+  tenantSelector: {}
+  resyncPeriod: 60s
+  pruningOnDelete: true
+  resources:
+    - rawItems:
+        - apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          metadata:
+            name: default-deny
+          spec:
+            podSelector: {}
+            policyTypes: [Ingress, Egress]
+        - apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          metadata:
+            name: allow-same-namespace
+          spec:
+            podSelector: {}
+            policyTypes: [Ingress, Egress]
+            ingress:
+              - from:
+                  - podSelector: {}
+            egress:
+              - to:
+                  - podSelector: {}
+        - apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          metadata:
+            name: allow-dns
+          spec:
+            podSelector: {}
+            policyTypes: [Egress]
+            egress:
+              # CoreDNS
+              - to:
+                  - namespaceSelector:
+                      matchLabels:
+                        kubernetes.io/metadata.name: kube-system
+                    podSelector:
+                      matchLabels:
+                        k8s-app: kube-dns
+                ports:
+                  - {protocol: UDP, port: 53}
+                  - {protocol: TCP, port: 53}
+              # NodeLocal DNS cache on each node (the address pods use in /etc/resolv.conf)
+              - to:
+                  - ipBlock:
+                      cidr: 169.254.25.10/32
+                ports:
+                  - {protocol: UDP, port: 53}
+                  - {protocol: TCP, port: 53}
+        - apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          metadata:
+            name: allow-ingress-from-platform
+          spec:
+            podSelector: {}
+            policyTypes: [Ingress]
+            ingress:
+              # Traefik routes HTTP(S) to tenant applications
+              - from:
+                  - namespaceSelector:
+                      matchLabels:
+                        kubernetes.io/metadata.name: traefik
+              # Prometheus may scrape tenant pods (ServiceMonitors are platform-managed)
+              - from:
+                  - namespaceSelector:
+                      matchLabels:
+                        kubernetes.io/metadata.name: monitoring
+                    podSelector:
+                      matchLabels:
+                        app.kubernetes.io/name: prometheus
+        - apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          metadata:
+            name: allow-egress-internet
+          spec:
+            podSelector: {}
+            policyTypes: [Egress]
+            egress:
+              # public addresses only: the pod, service and node networks and the LAN are inside these ranges
+              - to:
+                  - ipBlock:
+                      cidr: 0.0.0.0/0
+                      except:
+                        - 10.0.0.0/8
+                        - 172.16.0.0/12
+                        - 192.168.0.0/16
+                        - 100.64.0.0/10
+                        - 169.254.0.0/16

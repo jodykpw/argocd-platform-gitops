@@ -1,0 +1,46 @@
+# Garage UI and Garage admin secrets from group variables:
+#   garage_ui_oidc    = {"client-secret": "..."}
+#   garage_admin_token = {"admin-token": "..."}
+#   garage_ui_jwt     = the PEM text of the signing key (multi-line, plain, not JSON)
+# NOT here on purpose: `garage-rpc-secret` (changing it breaks the cluster layout; docs/external-secrets.md).
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: garage-ui-oidc
+  namespace: garage
+spec:
+  refreshInterval: 1h
+  secretStoreRef: {name: gitlab-platform, kind: ClusterSecretStore}
+  target: {name: garage-ui-oidc, creationPolicy: Merge}
+  dataFrom:
+    - extract: {key: garage_ui_oidc}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: garage-admin-token
+  namespace: garage
+spec:
+  refreshInterval: 1h
+  secretStoreRef: {name: gitlab-platform, kind: ClusterSecretStore}
+  target: {name: garage-admin-token, creationPolicy: Merge}
+  dataFrom:
+    - extract: {key: garage_admin_token}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: garage-ui-jwt
+  namespace: garage
+spec:
+  refreshInterval: 1h
+  secretStoreRef: {name: gitlab-platform, kind: ClusterSecretStore}
+  target:
+    name: garage-ui-jwt
+    creationPolicy: Merge
+    template:
+      data:
+        # GitLab's variable editor strips the trailing newline of a PEM; the file needs it back.
+        jwt-key.pem: "{{ .pem | trimSuffix \"\\n\" }}\n"
+  data:
+    - {secretKey: pem, remoteRef: {key: garage_ui_jwt}}

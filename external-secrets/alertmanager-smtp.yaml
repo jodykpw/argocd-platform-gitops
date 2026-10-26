@@ -1,0 +1,14 @@
+# Alertmanager's SMTP password, from the group variable `alertmanager_smtp` (plain text, the Google app password).
+# creationPolicy Merge: adopts the Secret that exists (made by hand) and only manages the key `password`; deleting this
+# object leaves the Secret in place. Alertmanager re-reads the file by itself (docs/alerting.md), no restart.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: alertmanager-smtp
+  namespace: monitoring
+spec:
+  refreshInterval: 1h
+  secretStoreRef: {name: gitlab-platform, kind: ClusterSecretStore}
+  target: {name: alertmanager-smtp, creationPolicy: Merge}
+  data:
+    - {secretKey: password, remoteRef: {key: alertmanager_smtp}}

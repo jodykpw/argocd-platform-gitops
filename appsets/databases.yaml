@@ -1,0 +1,39 @@
+# Databases for tenants (layer 1): the `databases` namespace, its network policies and the CloudNativePG `Cluster`
+# resources in it. Plan, risks and test: docs/databases.md, tests/databases.sh.
+# Needs the cloudnative-pg app first (the Cluster CRD). Auto-sync ON, prune OFF (tests/databases.sh passed, 11/11, 2026-10-18).
+# Prune stays OFF on purpose: removing a Cluster from Git must never delete a database.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: databases
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'databases'
+    spec:
+      project: platform
+      source:
+        repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+        targetRevision: main
+        path: overlays/{{ .cluster }}/databases
+      destination:
+        server: '{{ .server }}'
+        namespace: databases
+      syncPolicy:
+        automated:
+          prune: false
+          selfHeal: false
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}
+        syncOptions:
+          - ServerSideApply=true
+          - SkipDryRunOnMissingResource=true
+          - PruneLast=true

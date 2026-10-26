@@ -1,0 +1,11 @@
+# Objects of the External Secrets app that are not in its chart (third source of appsets/external-secrets.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - clustersecretstore.yaml
+  - alertmanager-smtp.yaml
+  - grafana.yaml
+  - headlamp.yaml
+  - garage.yaml
+  - thanos-velero.yaml
+  # one file per app that gets its Secrets from GitLab (docs/external-secrets.md, "Day to day")

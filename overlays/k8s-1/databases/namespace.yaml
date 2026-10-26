@@ -1,0 +1,9 @@
+# Platform namespace for databases that tenants use (docs/databases.md). It is NOT a tenant namespace: the operator and
+# the Kubernetes API are reachable from here, which tenant namespaces deliberately cannot do (docs/tenant-network.md).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: databases
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted

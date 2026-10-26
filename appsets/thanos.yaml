@@ -1,0 +1,69 @@
+# Thanos Querier, Store Gateway and Compactor (layer 1). The sidecar runs inside the Prometheus pod and is
+# configured in kube-prometheus-stack. 7 days raw in Garage, no downsampling. Auto-sync ON 
+# (after the test passed), prune OFF: a removed file must never delete the volumes.
+# Plan and test: docs/thanos.md, tests/thanos.sh.
+# Before the first sync: apply bootstrap/platform-project.yaml (stevehipwell chart repo in sourceRepos) and create
+# the bucket, key and Secret thanos-objstore in the namespace monitoring (docs/thanos.md). Needs kube-prometheus-stack
+# first (namespace, ServiceMonitor CRD).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: thanos
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - list:
+        elements:
+          - cluster: k8s-1
+            server: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: 'thanos'
+    spec:
+      project: platform
+      sources:
+        - repoURL: https://stevehipwell.github.io/helm-charts/
+          chart: thanos
+          targetRevision: "1.24.1"
+          helm:
+            releaseName: thanos
+            valueFiles:
+              - $values/base/thanos/values.yaml
+              - $values/overlays/{{ .cluster }}/thanos/values.yaml
+        - repoURL: https://gitlab.jodywan.com/servers/pcls.jodywan.com/k8s-1.jodywan.com/platform-gitops.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: '{{ .server }}'
+        namespace: monitoring
+      # The API server adds defaults to the StatefulSets' volumeClaimTemplates, which Argo CD shows as
+      # OutOfSync. volumeClaimTemplates are immutable anyway.
+      ignoreDifferences:
+        # Reloader writes the time and cause of its last restart into the pod template (docs/reloader.md).
+        - group: apps
+          kind: StatefulSet
+          name: thanos-compact
+          jqPathExpressions:
+            - .spec.template.metadata.annotations."reloader.stakater.com/last-reloaded-from"
+        # Reloader writes the time and cause of its last restart into the pod template (docs/reloader.md).
+        - group: apps
+          kind: StatefulSet
+          name: thanos-store-gateway
+          jqPathExpressions:
+            - .spec.template.metadata.annotations."reloader.stakater.com/last-reloaded-from"
+        - group: apps
+          kind: StatefulSet
+          jsonPointers:
+            - /spec/volumeClaimTemplates
+      syncPolicy:
+        automated:
+          prune: false        # never delete anything because a file was removed
+          selfHeal: false
+        retry:
+          limit: 10
+          backoff: {duration: 15s, factor: 2, maxDuration: 5m}
+        syncOptions:
+          - ServerSideApply=true
+          - PruneLast=true
+          - RespectIgnoreDifferences=true
